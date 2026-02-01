@@ -1,84 +1,97 @@
-'use client'
-
-import { useState } from 'react'
 import { Post } from './Post'
+import { CreatePost } from './CreatePost'
+import { createClient } from '@/lib/supabase/server'
 import type { PostData } from '@/types/post'
+import type { Tables } from '@/types/database'
 
-const mockPosts: PostData[] = [
-  {
-    id: '1',
-    author: {
-      name: 'John Doe',
-      handle: 'johndoe',
-      avatar: undefined,
-    },
-    content: 'Just started working on a new project using Next.js and shadcn/ui. The development experience is amazing! 🚀 #webdev #react',
-    timestamp: new Date(Date.now() - 300000).toISOString(),
-    likes: 42,
-    reposts: 8,
-    replies: 12,
-    views: 1250,
-  },
-  {
-    id: '2',
-    author: {
-      name: 'Jane Smith',
-      handle: 'janesmith',
-      avatar: undefined,
-    },
-    content: 'Exploring new AI tools for developers. The possibilities are endless!',
-    timestamp: new Date(Date.now() - 1800000).toISOString(),
-    likes: 128,
-    reposts: 24,
-    replies: 45,
-    views: 3200,
-  },
-  {
-    id: '3',
-    author: {
-      name: 'Dev Community',
-      handle: 'devcommunity',
-      avatar: undefined,
-    },
-    content: 'Hot take: TypeScript should be the default for all new JavaScript projects. The type safety saves countless hours of debugging.',
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    likes: 256,
-    reposts: 89,
-    replies: 134,
-    views: 8500,
-  },
-  {
-    id: '4',
-    author: {
-      name: 'Tech Enthusiast',
-      handle: 'techie',
-      avatar: undefined,
-    },
-    content: 'Just shipped my first full-stack app with Supabase. The built-in auth and real-time features are game changers! 🎉',
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-    likes: 89,
-    reposts: 15,
-    replies: 23,
-    views: 2100,
-  },
-  {
-    id: '5',
-    author: {
-      name: 'Open Source',
-      handle: 'opensource',
-      avatar: undefined,
-    },
-    content: 'Remember: every expert was once a beginner. Keep learning, keep building, keep shipping! 💪 #motivation #coding',
-    timestamp: new Date(Date.now() - 14400000).toISOString(),
-    likes: 512,
-    reposts: 156,
-    replies: 89,
-    views: 12000,
-  },
-]
+interface PostWithProfile extends Tables<'posts'> {
+  profiles: {
+    display_name: string
+    username: string
+    avatar_url: string | null
+  } | null
+}
 
-export function Feed() {
-  const [posts, setPosts] = useState<PostData[]>(mockPosts)
+async function getPosts(userId?: string): Promise<PostData[]> {
+  const supabase = await createClient()
+  
+  // Fetch top-level posts (not replies) with author info
+  const { data: posts, error } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      author_id,
+      content,
+      created_at,
+      likes_count,
+      reply_count,
+      repost_count,
+      view_count,
+      profiles:author_id (
+        display_name,
+        username,
+        avatar_url
+      )
+    `)
+    .is('parent_id', null)
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) {
+    console.error('Error fetching posts:', error)
+    return []
+  }
+
+  // If user is logged in, check which posts they liked
+  let likedPostIds = new Set<string>()
+  if (userId) {
+    const postIds = posts?.map(p => p.id) || []
+    if (postIds.length > 0) {
+      const { data: likes } = await supabase
+        .from('likes')
+        .select('post_id')
+        .eq('user_id', userId)
+        .in('post_id', postIds)
+      
+      likedPostIds = new Set(likes?.map(l => l.post_id) || [])
+    }
+  }
+
+  // Transform data to match PostData interface
+  return ((posts as unknown) as PostWithProfile[] || []).map((post) => ({
+    id: post.id,
+    author_id: post.author_id,
+    author: {
+      name: post.profiles?.display_name || 'Unknown',
+      handle: post.profiles?.username || 'unknown',
+      avatar: post.profiles?.avatar_url,
+    },
+    content: post.content,
+    timestamp: post.created_at,
+    likes: post.likes_count || 0,
+    likes_count: post.likes_count || 0,
+    reposts: post.repost_count || 0,
+    replies: post.reply_count || 0,
+    views: post.view_count || 0,
+    is_liked: likedPostIds.has(post.id),
+  }))
+}
+
+export async function Feed() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const posts = await getPosts(user?.id)
+  
+  // Get user profile for CreatePost
+  let userProfile = null
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+    userProfile = profile
+  }
 
   return (
     <main className="flex-1 border-x border-border min-h-screen max-w-[600px] mx-auto">
@@ -86,14 +99,30 @@ export function Feed() {
         <h2 className="text-xl font-bold">Home</h2>
       </header>
 
-      <div>
-        {posts.map((post) => (
-          <Post key={post.id} post={post} />
-        ))}
-      </div>
+      <CreatePost 
+        user={userProfile ? {
+          id: user!.id,
+          display_name: userProfile.display_name,
+          username: userProfile.username,
+          avatar_url: userProfile.avatar_url,
+        } : null} 
+      />
+
+      {posts.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground">
+          <p className="text-lg font-medium mb-2">No posts yet</p>
+          <p className="text-sm">Be the first to post something!</p>
+        </div>
+      ) : (
+        <div>
+          {posts.map((post) => (
+            <Post key={post.id} post={post} currentUserId={user?.id} />
+          ))}
+        </div>
+      )}
       
       <div className="p-4 text-center text-muted-foreground text-sm">
-        Loading more posts...
+        {posts.length > 0 ? 'Loading more posts...' : ''}
       </div>
     </main>
   )

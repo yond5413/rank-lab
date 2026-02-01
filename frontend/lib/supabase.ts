@@ -1,3 +1,6 @@
+// Legacy export - maintained for backwards compatibility
+// Use @/lib/supabase/client for browser-side or @/lib/supabase/server for server-side
+
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
