@@ -12,6 +12,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      follows: {
+        Row: {
+          id: string
+          follower_id: string
+          following_id: string
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          follower_id: string
+          following_id: string
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          follower_id?: string
+          following_id?: string
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "follows_follower_id_fkey"
+            columns: ["follower_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "follows_following_id_fkey"
+            columns: ["following_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       likes: {
         Row: {
           created_at: string | null
@@ -108,6 +144,8 @@ export type Database = {
           bio: string | null
           created_at: string | null
           display_name: string
+          followers_count: number | null
+          following_count: number | null
           id: string
           updated_at: string | null
           username: string
@@ -117,6 +155,8 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name: string
+          followers_count?: number | null
+          following_count?: number | null
           id: string
           updated_at?: string | null
           username: string
@@ -126,6 +166,8 @@ export type Database = {
           bio?: string | null
           created_at?: string | null
           display_name?: string
+          followers_count?: number | null
+          following_count?: number | null
           id?: string
           updated_at?: string | null
           username?: string
@@ -139,6 +181,7 @@ export type Database = {
     Functions: {
       get_current_user_id: { Args: never; Returns: string }
       has_user_liked_post: { Args: { post_uuid: string }; Returns: boolean }
+      is_following: { Args: { follower_uuid: string; following_uuid: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

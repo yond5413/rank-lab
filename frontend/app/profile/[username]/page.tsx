@@ -1,9 +1,10 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Calendar, MapPin } from 'lucide-react'
+import { ArrowLeft, Calendar } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Post } from '@/components/Post'
+import { FollowButton } from '@/components/FollowButton'
 import { LeftSidebar } from '@/components/LeftSidebar'
 import { RightSidebar } from '@/components/RightSidebar'
 import { createClient } from '@/lib/supabase/server'
@@ -114,6 +115,21 @@ async function getPostCount(userId: string): Promise<number> {
   return count || 0
 }
 
+async function checkIsFollowing(followerId: string | undefined, followingId: string): Promise<boolean> {
+  if (!followerId) return false
+  
+  const supabase = await createClient()
+  
+  const { data } = await supabase
+    .from('follows')
+    .select('id')
+    .eq('follower_id', followerId)
+    .eq('following_id', followingId)
+    .maybeSingle()
+
+  return !!data
+}
+
 export default async function ProfilePage({ params }: ProfilePageProps) {
   const { username } = await params
   const supabase = await createClient()
@@ -128,10 +144,18 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
   const posts = await getUserPosts(profile.id, user?.id)
   const postCount = await getPostCount(profile.id)
   const isOwnProfile = user?.id === profile.id
+  const isFollowing = await checkIsFollowing(user?.id, profile.id)
 
   const formatJoinDate = (date: string | null) => {
     if (!date) return 'Unknown'
     return new Date(date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  }
+
+  const formatCount = (count: number | null) => {
+    if (!count) return '0'
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M'
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K'
+    return count.toString()
   }
 
   return (
@@ -168,7 +192,7 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
               </Avatar>
             </div>
 
-            {/* Edit Profile Button */}
+            {/* Edit Profile / Follow Button */}
             <div className="absolute top-36 right-4">
               {isOwnProfile ? (
                 <Link href="/settings">
@@ -177,9 +201,11 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
                   </Button>
                 </Link>
               ) : (
-                <Button variant="outline" className="rounded-full">
-                  Follow
-                </Button>
+                <FollowButton
+                  targetUserId={profile.id}
+                  initialIsFollowing={isFollowing}
+                  currentUserId={user?.id}
+                />
               )}
             </div>
           </div>
@@ -193,8 +219,16 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
               <p className="mt-3 text-[15px]">{profile.bio}</p>
             )}
 
-            <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-4 mt-3 text-sm">
               <div className="flex items-center gap-1">
+                <span className="font-bold text-foreground">{formatCount(profile.following_count)}</span>
+                <span className="text-muted-foreground">Following</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="font-bold text-foreground">{formatCount(profile.followers_count)}</span>
+                <span className="text-muted-foreground">Followers</span>
+              </div>
+              <div className="flex items-center gap-1 text-muted-foreground">
                 <Calendar className="h-4 w-4" />
                 <span>Joined {formatJoinDate(profile.created_at)}</span>
               </div>

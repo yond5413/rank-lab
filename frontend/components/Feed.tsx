@@ -1,8 +1,7 @@
-import { Post } from './Post'
-import { CreatePost } from './CreatePost'
 import { createClient } from '@/lib/supabase/server'
 import type { PostData } from '@/types/post'
 import type { Tables } from '@/types/database'
+import { FeedContent } from './FeedContent'
 
 interface PostWithProfile extends Tables<'posts'> {
   profiles: {
@@ -12,11 +11,11 @@ interface PostWithProfile extends Tables<'posts'> {
   } | null
 }
 
-async function getPosts(userId?: string): Promise<PostData[]> {
+async function getPosts(userId?: string, feedType: 'all' | 'following' = 'all'): Promise<PostData[]> {
   const supabase = await createClient()
   
-  // Fetch top-level posts (not replies) with author info
-  const { data: posts, error } = await supabase
+  // Build the base query
+  let query = supabase
     .from('posts')
     .select(`
       id,
@@ -34,6 +33,27 @@ async function getPosts(userId?: string): Promise<PostData[]> {
       )
     `)
     .is('parent_id', null)
+
+  // Filter by following if feedType is 'following' and user is logged in
+  if (feedType === 'following' && userId) {
+    // Get the list of users the current user follows
+    const { data: followingData } = await supabase
+      .from('follows')
+      .select('following_id')
+      .eq('follower_id', userId)
+    
+    const followingIds = followingData?.map(f => f.following_id) || []
+    
+    // If not following anyone, return empty array
+    if (followingIds.length === 0) {
+      return []
+    }
+    
+    // Filter posts to only show posts from followed users
+    query = query.in('author_id', followingIds)
+  }
+
+  const { data: posts, error } = await query
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -80,7 +100,10 @@ async function getPosts(userId?: string): Promise<PostData[]> {
 export async function Feed() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const posts = await getPosts(user?.id)
+  
+  // Fetch both feeds
+  const forYouPosts = await getPosts(user?.id, 'all')
+  const followingPosts = await getPosts(user?.id, 'following')
   
   // Get user profile for CreatePost
   let userProfile = null
@@ -94,36 +117,11 @@ export async function Feed() {
   }
 
   return (
-    <main className="flex-1 border-x border-border min-h-screen max-w-[600px] mx-auto">
-      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border px-4 py-3">
-        <h2 className="text-xl font-bold">Home</h2>
-      </header>
-
-      <CreatePost 
-        user={userProfile ? {
-          id: user!.id,
-          display_name: userProfile.display_name,
-          username: userProfile.username,
-          avatar_url: userProfile.avatar_url,
-        } : null} 
-      />
-
-      {posts.length === 0 ? (
-        <div className="p-8 text-center text-muted-foreground">
-          <p className="text-lg font-medium mb-2">No posts yet</p>
-          <p className="text-sm">Be the first to post something!</p>
-        </div>
-      ) : (
-        <div>
-          {posts.map((post) => (
-            <Post key={post.id} post={post} currentUserId={user?.id} />
-          ))}
-        </div>
-      )}
-      
-      <div className="p-4 text-center text-muted-foreground text-sm">
-        {posts.length > 0 ? 'Loading more posts...' : ''}
-      </div>
-    </main>
+    <FeedContent 
+      forYouPosts={forYouPosts}
+      followingPosts={followingPosts}
+      user={user}
+      userProfile={userProfile}
+    />
   )
 }
