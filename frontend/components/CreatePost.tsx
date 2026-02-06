@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
+import { embedPost } from '@/lib/api'
 
 interface CreatePostProps {
   user?: {
@@ -34,14 +35,24 @@ export function CreatePost({ user }: CreatePostProps) {
     setIsLoading(true)
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('posts')
         .insert({
           author_id: user.id,
           content: content.trim(),
         })
+        .select('id')
+        .single()
 
       if (error) throw error
+
+      // Trigger backend to compute and store the post embedding
+      // (fire-and-forget so we don't block the UI)
+      if (data?.id) {
+        embedPost(data.id, content.trim()).catch((err) => {
+          console.warn('Post embedding failed (non-critical):', err)
+        })
+      }
 
       setContent('')
       router.refresh()

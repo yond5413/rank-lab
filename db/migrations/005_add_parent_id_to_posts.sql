@@ -25,3 +25,4 @@ AFTER INSERT OR DELETE ON posts
 FOR EACH ROW
 EXECUTE FUNCTION update_reply_count();
 
+

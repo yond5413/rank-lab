@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Home, Search, User, Settings } from 'lucide-react'
+import { Home, Search, User, Settings, Brain } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { AuthButton } from './AuthButton'
@@ -51,7 +51,9 @@ export async function LeftSidebar() {
       </div>
       
       <nav className="flex flex-col gap-1 flex-1">
+        
         <NavItem icon={<Home className="h-7 w-7" />} label="Home" href="/" />
+        <NavItem icon = {<Brain className="h-7 w-7" />} label = "Admin" href='/admin'/>
         <NavItem icon={<Search className="h-7 w-7" />} label="Explore" href="/explore" />
         <NavItem 
           icon={<User className="h-7 w-7" />} 

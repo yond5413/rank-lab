@@ -37,3 +37,4 @@ export function SearchForm({ initialQuery = '' }: SearchFormProps) {
   )
 }
 
+

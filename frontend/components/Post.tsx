@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { MessageCircle, Repeat2, Heart, Share } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
+import { logEngagement } from '@/lib/api'
 import type { PostData } from '@/types/post'
 import { useRouter } from 'next/navigation'
 
@@ -20,6 +21,20 @@ export function Post({ post, currentUserId }: PostProps) {
   const [isLiked, setIsLiked] = useState(post.is_liked || false)
   const [likesCount, setLikesCount] = useState(post.likes_count || 0)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Log a "view" engagement when the post mounts (fire-and-forget)
+  useEffect(() => {
+    if (currentUserId) {
+      logEngagement({
+        user_id: currentUserId,
+        post_id: post.id,
+        event_type: 'view',
+      }).catch(() => {
+        // Silently ignore – view tracking is best-effort
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp)
@@ -52,7 +67,7 @@ export function Post({ post, currentUserId }: PostProps) {
 
     try {
       if (newIsLiked) {
-        // Add like
+        // Add like in Supabase
         const { error } = await supabase
           .from('likes')
           .insert({
@@ -61,6 +76,13 @@ export function Post({ post, currentUserId }: PostProps) {
           })
         
         if (error) throw error
+
+        // Send engagement event to backend (fire-and-forget)
+        logEngagement({
+          user_id: currentUserId,
+          post_id: post.id,
+          event_type: 'like',
+        }).catch(() => {})
       } else {
         // Remove like
         const { error } = await supabase
@@ -108,7 +130,7 @@ export function Post({ post, currentUserId }: PostProps) {
               {post.author.name}
             </Link>
             <span className="text-muted-foreground truncate">@{post.author.handle}</span>
-            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">&middot;</span>
             <span className="text-muted-foreground">{post.timestamp ? formatTimestamp(post.timestamp) : ''}</span>
           </div>
           

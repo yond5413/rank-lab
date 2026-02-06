@@ -1,7 +1,8 @@
+import { Post } from './Post'
+import { CreatePost } from './CreatePost'
 import { createClient } from '@/lib/supabase/server'
 import type { PostData } from '@/types/post'
 import type { Tables } from '@/types/database'
-import { FeedContent } from './FeedContent'
 
 interface PostWithProfile extends Tables<'posts'> {
   profiles: {
@@ -11,10 +12,48 @@ interface PostWithProfile extends Tables<'posts'> {
   } | null
 }
 
-async function getPosts(userId?: string, feedType: 'all' | 'following' = 'all'): Promise<PostData[]> {
+/**
+ * Try to fetch a ranked feed from the backend recommendation API.
+ * Returns null if the backend is unavailable so we can fall back
+ * to a chronological Supabase query.
+ */
+async function getRankedPostIds(userId: string): Promise<string[] | null> {
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ||
+    'http://localhost:8000'
+
+  try {
+    const res = await fetch(`${apiBase}/api/v1/recommend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, limit: 50 }),
+      // Short timeout so we don't block the page if backend is down
+      signal: AbortSignal.timeout(5000),
+    })
+
+    if (!res.ok) return null
+
+    const data = await res.json()
+    if (data.posts && data.posts.length > 0) {
+      return data.posts.map((p: { id: string }) => p.id)
+    }
+    return null
+  } catch {
+    // Backend unavailable — fall back to chronological
+    return null
+  }
+}
+
+async function getPosts(userId?: string): Promise<PostData[]> {
   const supabase = await createClient()
-  
-  // Build the base query
+
+  // ---------- Try ranked feed first ----------
+  let rankedIds: string[] | null = null
+  if (userId) {
+    rankedIds = await getRankedPostIds(userId)
+  }
+
+  // ---------- Fetch posts ----------
   let query = supabase
     .from('posts')
     .select(`
@@ -32,30 +71,16 @@ async function getPosts(userId?: string, feedType: 'all' | 'following' = 'all'):
         avatar_url
       )
     `)
-    .is('parent_id', null)
 
-  // Filter by following if feedType is 'following' and user is logged in
-  if (feedType === 'following' && userId) {
-    // Get the list of users the current user follows
-    const { data: followingData } = await supabase
-      .from('follows')
-      .select('following_id')
-      .eq('follower_id', userId)
-    
-    const followingIds = followingData?.map(f => f.following_id) || []
-    
-    // If not following anyone, return empty array
-    if (followingIds.length === 0) {
-      return []
-    }
-    
-    // Filter posts to only show posts from followed users
-    query = query.in('author_id', followingIds)
+  if (rankedIds && rankedIds.length > 0) {
+    // Fetch the specific posts the backend recommended
+    query = query.in('id', rankedIds)
+  } else {
+    // Fallback: chronological
+    query = query.order('created_at', { ascending: false }).limit(50)
   }
 
   const { data: posts, error } = await query
-    .order('created_at', { ascending: false })
-    .limit(50)
 
   if (error) {
     console.error('Error fetching posts:', error)
@@ -78,7 +103,7 @@ async function getPosts(userId?: string, feedType: 'all' | 'following' = 'all'):
   }
 
   // Transform data to match PostData interface
-  return ((posts as unknown) as PostWithProfile[] || []).map((post) => ({
+  const postDataList = ((posts as unknown) as PostWithProfile[] || []).map((post) => ({
     id: post.id,
     author_id: post.author_id,
     author: {
@@ -95,15 +120,22 @@ async function getPosts(userId?: string, feedType: 'all' | 'following' = 'all'):
     views: post.view_count || 0,
     is_liked: likedPostIds.has(post.id),
   }))
+
+  // If we got ranked ids, preserve the ranking order
+  if (rankedIds && rankedIds.length > 0) {
+    const postMap = new Map(postDataList.map(p => [p.id, p]))
+    return rankedIds
+      .map(id => postMap.get(id))
+      .filter((p): p is PostData => p !== undefined)
+  }
+
+  return postDataList
 }
 
 export async function Feed() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  
-  // Fetch both feeds
-  const forYouPosts = await getPosts(user?.id, 'all')
-  const followingPosts = await getPosts(user?.id, 'following')
+  const posts = await getPosts(user?.id)
   
   // Get user profile for CreatePost
   let userProfile = null
@@ -117,11 +149,36 @@ export async function Feed() {
   }
 
   return (
-    <FeedContent 
-      forYouPosts={forYouPosts}
-      followingPosts={followingPosts}
-      user={user}
-      userProfile={userProfile}
-    />
+    <main className="flex-1 border-x border-border min-h-screen max-w-[600px] mx-auto">
+      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border px-4 py-3">
+        <h2 className="text-xl font-bold">Home</h2>
+      </header>
+
+      <CreatePost 
+        user={userProfile ? {
+          id: user!.id,
+          display_name: userProfile.display_name,
+          username: userProfile.username,
+          avatar_url: userProfile.avatar_url,
+        } : null} 
+      />
+
+      {posts.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground">
+          <p className="text-lg font-medium mb-2">No posts yet</p>
+          <p className="text-sm">Be the first to post something!</p>
+        </div>
+      ) : (
+        <div>
+          {posts.map((post) => (
+            <Post key={post.id} post={post} currentUserId={user?.id} />
+          ))}
+        </div>
+      )}
+      
+      <div className="p-4 text-center text-muted-foreground text-sm">
+        {posts.length > 0 ? 'Loading more posts...' : ''}
+      </div>
+    </main>
   )
 }
