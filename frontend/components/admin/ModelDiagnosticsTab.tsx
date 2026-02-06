@@ -8,8 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RefreshCw, Brain, BarChart3, Users, Settings, AlertTriangle, TrendingUp } from 'lucide-react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+import { adminFetch } from '@/lib/adminApi';
 
 interface ModelDiagnostics {
   scoring_weights: {
@@ -24,11 +23,11 @@ interface ModelDiagnostics {
     error?: string;
   };
   engagement_patterns: {
-    total_recent_events: number;
-    event_type_distribution: Record<string, number>;
-    unique_active_users: number;
-    avg_events_per_user: number;
-    most_common_events: Array<[string, number]>;
+    total_recent_events?: number;
+    event_type_distribution?: Record<string, number>;
+    unique_active_users?: number;
+    avg_events_per_user?: number;
+    most_common_events?: Array<[string, number]>;
     error?: string;
   };
   model_config: {
@@ -56,13 +55,8 @@ export function ModelDiagnosticsTab() {
         params.append('user_id', userId.trim());
       }
 
-      const response = await fetch(`${API_URL}/admin/model-diagnostics?${params}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch diagnostics: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const qs = params.toString();
+      const data = await adminFetch<ModelDiagnostics>(`/model-diagnostics${qs ? `?${qs}` : ''}`);
       setDiagnostics(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch diagnostics');
@@ -79,7 +73,8 @@ export function ModelDiagnosticsTab() {
     fetchDiagnostics(userIdFilter);
   };
 
-  const formatNumber = (num: number) => {
+  const formatNumber = (num: number | undefined | null) => {
+    if (num == null || isNaN(num)) return '0';
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
     return num.toLocaleString();
@@ -319,7 +314,7 @@ export function ModelDiagnosticsTab() {
                     {/* Average Events per User */}
                     <div className="text-center pt-2 border-t">
                       <div className="text-lg font-bold text-purple-600">
-                        {diagnostics.engagement_patterns.avg_events_per_user.toFixed(1)}
+                        {(diagnostics.engagement_patterns.avg_events_per_user ?? 0).toFixed(1)}
                       </div>
                       <div className="text-xs text-muted-foreground">Avg Events per User</div>
                     </div>
@@ -328,7 +323,7 @@ export function ModelDiagnosticsTab() {
                     <div className="pt-4 border-t">
                       <div className="text-sm font-medium mb-3">Event Distribution</div>
                       <div className="space-y-2">
-                        {Object.entries(diagnostics.engagement_patterns.event_type_distribution)
+                        {Object.entries(diagnostics.engagement_patterns.event_type_distribution ?? {})
                           .sort(([,a], [,b]) => b - a)
                           .slice(0, 5)
                           .map(([eventType, percentage]) => (
@@ -352,7 +347,7 @@ export function ModelDiagnosticsTab() {
                     <div className="pt-4 border-t">
                       <div className="text-sm font-medium mb-3">Top Events</div>
                       <div className="space-y-1">
-                        {diagnostics.engagement_patterns.most_common_events.slice(0, 3).map(([event, count], index) => (
+                        {(diagnostics.engagement_patterns.most_common_events ?? []).slice(0, 3).map(([event, count], index) => (
                           <div key={event} className="flex justify-between items-center">
                             <div className="flex items-center gap-2">
                               <Badge variant="outline">{index + 1}</Badge>
@@ -408,8 +403,8 @@ export function ModelDiagnosticsTab() {
                       <Users className="w-4 h-4 text-blue-600" />
                       <span className="font-medium">User Activity</span>
                     </div>
-                    <Badge variant={diagnostics.engagement_patterns.unique_active_users > 10 ? "default" : "secondary"}>
-                      {diagnostics.engagement_patterns.unique_active_users > 10 ? "Active" : "Low"}
+                    <Badge variant={(diagnostics.engagement_patterns.unique_active_users ?? 0) > 10 ? "default" : "secondary"}>
+                      {(diagnostics.engagement_patterns.unique_active_users ?? 0) > 10 ? "Active" : "Low"}
                     </Badge>
                     <p className="text-xs text-muted-foreground mt-1">
                       {formatNumber(diagnostics.engagement_patterns.unique_active_users)} active users
@@ -421,8 +416,8 @@ export function ModelDiagnosticsTab() {
                       <BarChart3 className="w-4 h-4 text-purple-600" />
                       <span className="font-medium">Event Volume</span>
                     </div>
-                    <Badge variant={diagnostics.engagement_patterns.total_recent_events > 100 ? "default" : "secondary"}>
-                      {diagnostics.engagement_patterns.total_recent_events > 100 ? "High" : "Low"}
+                    <Badge variant={(diagnostics.engagement_patterns.total_recent_events ?? 0) > 100 ? "default" : "secondary"}>
+                      {(diagnostics.engagement_patterns.total_recent_events ?? 0) > 100 ? "High" : "Low"}
                     </Badge>
                     <p className="text-xs text-muted-foreground mt-1">
                       {formatNumber(diagnostics.engagement_patterns.total_recent_events)} recent events
@@ -434,7 +429,7 @@ export function ModelDiagnosticsTab() {
                 <div className="pt-4 border-t">
                   <div className="text-sm font-medium mb-3">Recommendations</div>
                   <div className="space-y-2">
-                    {diagnostics.engagement_patterns.unique_active_users < 10 && (
+                    {(diagnostics.engagement_patterns.unique_active_users ?? 0) < 10 && (
                       <Alert>
                         <AlertTriangle className="w-4 h-4" />
                         <AlertDescription>
@@ -452,7 +447,7 @@ export function ModelDiagnosticsTab() {
                       </Alert>
                     )}
                     
-                    {diagnostics.engagement_patterns.avg_events_per_user < 2 && (
+                    {(diagnostics.engagement_patterns.avg_events_per_user ?? 0) < 2 && (
                       <Alert>
                         <AlertTriangle className="w-4 h-4" />
                         <AlertDescription>

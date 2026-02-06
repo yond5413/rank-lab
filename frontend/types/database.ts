@@ -7,6 +7,8 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
@@ -87,39 +89,48 @@ export type Database = {
       posts: {
         Row: {
           author_id: string
+          bookmarks_count: number | null
           content: string
           created_at: string | null
           id: string
           likes_count: number | null
+          parent_id: string | null
           reply_count: number | null
           repost_count: number | null
+          root_post_id: string | null
+          thread_depth: number | null
           updated_at: string | null
           view_count: number | null
-          parent_id: string | null
         }
         Insert: {
           author_id: string
+          bookmarks_count?: number | null
           content: string
           created_at?: string | null
           id?: string
           likes_count?: number | null
+          parent_id?: string | null
           reply_count?: number | null
           repost_count?: number | null
+          root_post_id?: string | null
+          thread_depth?: number | null
           updated_at?: string | null
           view_count?: number | null
-          parent_id?: string | null
         }
         Update: {
           author_id?: string
+          bookmarks_count?: number | null
           content?: string
           created_at?: string | null
           id?: string
           likes_count?: number | null
+          parent_id?: string | null
           reply_count?: number | null
           repost_count?: number | null
+          root_post_id?: string | null
+          thread_depth?: number | null
           updated_at?: string | null
           view_count?: number | null
-          parent_id?: string | null
         }
         Relationships: [
           {
@@ -134,6 +145,42 @@ export type Database = {
             columns: ["parent_id"]
             isOneToOne: false
             referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bookmarks: {
+        Row: {
+          created_at: string | null
+          id: string
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookmarks_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookmarks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -176,7 +223,42 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      user_bookmarks: {
+        Row: {
+          author_avatar: string | null
+          author_id: string | null
+          author_name: string | null
+          author_username: string | null
+          bookmark_id: string | null
+          bookmarked_at: string | null
+          content: string | null
+          likes_count: number | null
+          post_created_at: string | null
+          post_id: string | null
+          reply_count: number | null
+          repost_count: number | null
+          root_post_id: string | null
+          thread_depth: number | null
+          user_id: string | null
+          view_count: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookmarks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "posts_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       get_current_user_id: { Args: never; Returns: string }

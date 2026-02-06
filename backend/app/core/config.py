@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv(
+        "SUPABASE_SERVICE_ROLE_KEY", ""
+    )
 
     # Model Config
     USER_EMBEDDING_DIM: int = 128

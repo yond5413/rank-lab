@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -27,7 +28,7 @@ import { ModelDiagnosticsTab } from '@/components/admin/ModelDiagnosticsTab';
 import { EnhancedWeightManagementTab } from '@/components/admin/EnhancedWeightManagementTab';
 import { AlertSystem } from '@/components/admin/AlertSystem';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+import { adminFetch } from '@/lib/adminApi';
 
 interface SystemStats {
   user_embeddings?: number;
@@ -56,9 +57,7 @@ export default function AdminDashboard() {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/admin/stats`);
-      if (!response.ok) throw new Error('Failed to fetch stats');
-      const data = await response.json();
+      const data = await adminFetch<SystemStats>('/stats');
       setStats(data);
     } catch (err) {
       console.error('Failed to load stats:', err);
@@ -70,16 +69,7 @@ export default function AdminDashboard() {
 
   const fetchSystemHealth = async () => {
     try {
-      // Simulate system health check - in a real implementation, this would be a dedicated endpoint
-      const healthData: SystemHealth = {
-        overall_status: 'healthy',
-        services: {
-          pipeline: 'ok',
-          embeddings: 'ok',
-          scoring: 'ok'
-        },
-        last_updated: new Date().toISOString()
-      };
+      const healthData = await adminFetch<SystemHealth>('/health');
       setHealth(healthData);
     } catch (err) {
       console.error('Failed to load system health:', err);
@@ -133,6 +123,9 @@ export default function AdminDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-4">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/">Back to Home</Link>
+            </Button>
             {health && (
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">

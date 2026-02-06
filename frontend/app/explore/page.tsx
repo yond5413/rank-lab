@@ -69,6 +69,7 @@ async function searchPosts(query: string, currentUserId?: string): Promise<PostD
         avatar_url
       )
     `)
+    .is('parent_id', null)  // Only show top-level posts, not replies
     .ilike('content', `%${query}%`)
     .order('created_at', { ascending: false })
     .limit(50)
@@ -93,7 +94,9 @@ async function searchPosts(query: string, currentUserId?: string): Promise<PostD
     }
   }
 
-  return ((posts as unknown) as PostWithProfile[] || []).map((post) => ({
+  return ((posts as unknown) as PostWithProfile[] || [])
+    .filter(post => !post.parent_id)
+    .map((post) => ({
     id: post.id,
     author_id: post.author_id,
     author: {
@@ -132,6 +135,7 @@ async function getRecentPosts(currentUserId?: string): Promise<PostData[]> {
         avatar_url
       )
     `)
+    .is('parent_id', null)  // Only show top-level posts, not replies
     .order('likes_count', { ascending: false })
     .limit(20)
 
@@ -155,7 +159,9 @@ async function getRecentPosts(currentUserId?: string): Promise<PostData[]> {
     }
   }
 
-  return ((posts as unknown) as PostWithProfile[] || []).map((post) => ({
+  return ((posts as unknown) as PostWithProfile[] || [])
+    .filter(post => !post.parent_id)
+    .map((post) => ({
     id: post.id,
     author_id: post.author_id,
     author: {

@@ -28,6 +28,11 @@ Required variables:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `NEXT_PUBLIC_API_URL`
 
+Backend variables (used by FastAPI):
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (recommended for server-side inserts)
+- `SUPABASE_KEY` (fallback for local dev)
+
 ### 2. Run Backend
 
 ```bash

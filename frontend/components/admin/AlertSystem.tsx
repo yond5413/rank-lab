@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Bell, BellOff, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { adminFetch } from '@/lib/adminApi';
 
 interface SystemAlert {
   id: string;
@@ -26,44 +27,10 @@ export function AlertSystem({ onAlertsChange }: AlertSystemProps) {
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [lastCheck, setLastCheck] = useState<Date>(new Date());
 
-  // Simulate alert checking - in a real implementation, this would poll an endpoint
+  // Poll backend for computed alerts
   const checkForAlerts = async () => {
     try {
-      // Simulate various system alerts
-      const mockAlerts: SystemAlert[] = [
-        {
-          id: '1',
-          type: 'warning',
-          title: 'Low Embedding Update Rate',
-          message: 'User embedding updates have dropped below 5/hour in the last 2 hours',
-          timestamp: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
-          acknowledged: false,
-          source: 'Pipeline Monitor'
-        },
-        {
-          id: '2',
-          type: 'info',
-          title: 'Weight Configuration Updated',
-          message: 'Scoring weights were modified by admin_user at 14:23',
-          timestamp: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-          acknowledged: true,
-          source: 'Weight Manager'
-        },
-        {
-          id: '3',
-          type: 'success',
-          title: 'Attention Verification Passed',
-          message: 'All recent attention masking tests passed with score difference < 0.01',
-          timestamp: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
-          acknowledged: true,
-          source: 'Attention Verifier'
-        }
-      ];
-
-      // Only show new alerts (in a real system, this would be filtered by the backend)
-      const newAlerts = mockAlerts.filter(alert => 
-        new Date(alert.timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
-      );
+      const newAlerts = await adminFetch<SystemAlert[]>('/alerts');
 
       setAlerts(newAlerts);
       setLastCheck(new Date());

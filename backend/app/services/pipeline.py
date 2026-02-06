@@ -123,6 +123,7 @@ class RecommendationPipeline:
                 self.supabase.table("posts")
                 .select("*")
                 .in_("author_id", following_str)
+                .is_("parent_id", "null")  # Only top-level posts, not replies
                 .order("created_at", desc=True)
                 .limit(limit)
                 .execute()
@@ -173,11 +174,12 @@ class RecommendationPipeline:
             if not top_post_ids:
                 return []
 
-            # Fetch post details
+            # Fetch post details (only top-level posts, not replies)
             response = (
                 self.supabase.table("posts")
                 .select("*")
                 .in_("id", top_post_ids)
+                .is_("parent_id", "null")
                 .execute()
             )
 

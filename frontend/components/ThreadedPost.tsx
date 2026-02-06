@@ -2,36 +2,50 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { MessageCircle, Repeat2, Heart, Share, Bookmark, MoreHorizontal, Trash2 } from 'lucide-react'
+import { MessageCircle, Repeat2, Heart, Share, ChevronDown, ChevronUp, Bookmark } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { createClient } from '@/lib/supabase/client'
 import { logEngagement } from '@/lib/api'
 import type { PostData } from '@/types/post'
 import { useRouter } from 'next/navigation'
-import { DeletePostDialog } from './DeletePostDialog'
 
-interface PostProps {
-  post: PostData
-  currentUserId?: string | null
+interface ThreadedPostData extends PostData {
+  thread_depth: number
+  root_post_id?: string | null
+  is_bookmarked?: boolean
+  children?: ThreadedPostData[]
 }
 
-export function Post({ post, currentUserId }: PostProps) {
+interface ThreadedPostProps {
+  post: ThreadedPostData
+  currentUserId?: string | null
+  isLastInLevel?: boolean
+  showConnectingLines?: boolean
+  parentConnectingLines?: boolean[]
+  onReplyCountChange?: (postId: string, delta: number) => void
+}
+
+export function ThreadedPost({ 
+  post, 
+  currentUserId, 
+  isLastInLevel = false,
+  showConnectingLines = true,
+  parentConnectingLines = [],
+  onReplyCountChange
+}: ThreadedPostProps) {
   const router = useRouter()
   const supabase = createClient()
   const [isLiked, setIsLiked] = useState(post.is_liked || false)
   const [isBookmarked, setIsBookmarked] = useState(post.is_bookmarked || false)
   const [likesCount, setLikesCount] = useState(post.likes_count || 0)
+  const [repliesCount, setRepliesCount] = useState(post.replies || 0)
   const [isLoading, setIsLoading] = useState(false)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [isDeleted, setIsDeleted] = useState(false)
+  const [showReplies, setShowReplies] = useState(true)
+  const [collapsedReplies, setCollapsedReplies] = useState(post.thread_depth > 2)
+
+  const maxVisibleDepth = 6
+  const isDeepThread = post.thread_depth >= maxVisibleDepth
 
   // Log a "view" engagement when the post mounts (fire-and-forget)
   useEffect(() => {
@@ -171,35 +185,6 @@ export function Post({ post, currentUserId }: PostProps) {
     }
   }
 
-  const handleDelete = async () => {
-    if (!currentUserId || currentUserId !== post.author_id) return
-    
-    setIsDeleting(true)
-    
-    try {
-      // Delete the post from Supabase (cascading delete will handle replies)
-      const { error } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', post.id)
-        .eq('author_id', currentUserId) // Extra safety check
-      
-      if (error) throw error
-
-      // Optimistically hide the post
-      setIsDeleted(true)
-      setShowDeleteDialog(false)
-      
-      // Refresh the page to update the feed
-      router.refresh()
-    } catch (error) {
-      console.error('Error deleting post:', error)
-      // Could show a toast notification here
-    } finally {
-      setIsDeleting(false)
-    }
-  }
-
   const handleButtonClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -209,69 +194,85 @@ export function Post({ post, currentUserId }: PostProps) {
     router.push(`/post/${post.id}`)
   }
 
-  // Don't render deleted posts
-  if (isDeleted) {
-    return null
+  const toggleReplies = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setShowReplies(!showReplies)
   }
 
+  const toggleCollapsed = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setCollapsedReplies(!collapsedReplies)
+  }
+
+  // Generate connecting lines for thread visualization
+  const connectingLines = showConnectingLines ? [...parentConnectingLines] : []
+  if (showConnectingLines && post.thread_depth > 0) {
+    connectingLines[post.thread_depth - 1] = !isLastInLevel
+  }
+
+  const threadIndent = Math.min(post.thread_depth * 24, maxVisibleDepth * 24)
+
   return (
-    <>
+    <div className="relative">
+      {/* Thread connecting lines */}
+      {showConnectingLines && post.thread_depth > 0 && (
+        <div className="absolute left-0 top-0 bottom-0 pointer-events-none">
+          {connectingLines.slice(0, post.thread_depth).map((shouldShow, depth) => (
+            <div
+              key={depth}
+              className={`absolute w-px bg-border ${shouldShow ? 'h-full' : 'h-12'}`}
+              style={{ left: `${depth * 24 + 20}px` }}
+            />
+          ))}
+          {/* Horizontal line to post */}
+          <div
+            className="absolute w-6 h-px bg-border top-6"
+            style={{ left: `${(post.thread_depth - 1) * 24 + 20}px` }}
+          />
+        </div>
+      )}
+
       <article 
-      className="flex gap-3 px-4 py-3 border-b border-border hover:bg-accent/50 transition-colors cursor-pointer"
-      onClick={handlePostClick}
-    >
+        className={`flex gap-3 px-4 py-3 border-b border-border hover:bg-accent/50 transition-colors cursor-pointer relative ${
+          isDeepThread ? 'bg-muted/20' : ''
+        }`}
+        style={{ marginLeft: `${threadIndent}px` }}
+        onClick={handlePostClick}
+      >
         <Link href={`/profile/${post.author.handle}`} onClick={(e) => e.stopPropagation()}>
-          <Avatar className="h-10 w-10 flex-shrink-0">
+          <Avatar className={`flex-shrink-0 ${post.thread_depth > 0 ? 'h-8 w-8' : 'h-10 w-10'}`}>
             <AvatarImage src={post.author.avatar || undefined} alt={post.author.name} />
             <AvatarFallback>{post.author.name.charAt(0)}</AvatarFallback>
           </Avatar>
         </Link>
         
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-sm">
-              <Link 
-                href={`/profile/${post.author.handle}`} 
-                onClick={(e) => e.stopPropagation()}
-                className="font-bold text-foreground truncate hover:underline"
-              >
-                {post.author.name}
-              </Link>
-              <span className="text-muted-foreground truncate">@{post.author.handle}</span>
-              <span className="text-muted-foreground">&middot;</span>
-              <span className="text-muted-foreground">{post.timestamp ? formatTimestamp(post.timestamp) : ''}</span>
-            </div>
-            
-            {/* Post actions dropdown (only for post author) */}
-            {currentUserId === post.author_id && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuItem 
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setShowDeleteDialog(true)
-                    }}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete post
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+          <div className="flex items-center gap-1.5 text-sm">
+            <Link 
+              href={`/profile/${post.author.handle}`} 
+              onClick={(e) => e.stopPropagation()}
+              className="font-bold text-foreground truncate hover:underline"
+            >
+              {post.author.name}
+            </Link>
+            <span className="text-muted-foreground truncate">@{post.author.handle}</span>
+            <span className="text-muted-foreground">&middot;</span>
+            <span className="text-muted-foreground">{post.timestamp ? formatTimestamp(post.timestamp) : ''}</span>
+            {post.thread_depth > 0 && (
+              <>
+                <span className="text-muted-foreground">&middot;</span>
+                <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  Level {post.thread_depth + 1}
+                </span>
+              </>
             )}
           </div>
           
-          <p className="text-[15px] leading-relaxed mt-1 whitespace-pre-wrap break-words text-foreground">
+          <p className={`leading-relaxed mt-1 whitespace-pre-wrap break-words text-foreground ${
+            post.thread_depth > 0 ? 'text-sm' : 'text-[15px]'
+          }`}>
             {post.content}
           </p>
           
@@ -280,19 +281,19 @@ export function Post({ post, currentUserId }: PostProps) {
               variant="ghost" 
               size="icon" 
               onClick={handleButtonClick}
-              className="h-9 w-9 rounded-full text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10"
+              className="h-8 w-8 rounded-full text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10"
             >
-              <MessageCircle className="h-5 w-5" />
-              {post.replies > 0 && <span className="text-xs ml-1">{post.replies}</span>}
+              <MessageCircle className="h-4 w-4" />
+              {repliesCount > 0 && <span className="text-xs ml-1">{repliesCount}</span>}
             </Button>
             
             <Button 
               variant="ghost" 
               size="icon" 
               onClick={handleButtonClick}
-              className="h-9 w-9 rounded-full text-muted-foreground hover:text-green-500 hover:bg-green-500/10"
+              className="h-8 w-8 rounded-full text-muted-foreground hover:text-green-500 hover:bg-green-500/10"
             >
-              <Repeat2 className="h-5 w-5" />
+              <Repeat2 className="h-4 w-4" />
               {post.reposts > 0 && <span className="text-xs ml-1">{post.reposts}</span>}
             </Button>
             
@@ -301,13 +302,13 @@ export function Post({ post, currentUserId }: PostProps) {
               size="icon" 
               onClick={handleLike}
               disabled={isLoading}
-              className={`h-9 w-9 rounded-full transition-colors ${
+              className={`h-8 w-8 rounded-full transition-colors ${
                 isLiked 
                   ? 'text-pink-500 hover:text-pink-600 hover:bg-pink-500/10' 
                   : 'text-muted-foreground hover:text-pink-500 hover:bg-pink-500/10'
               }`}
             >
-              <Heart className={`h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />
+              <Heart className={`h-4 w-4 ${isLiked ? 'fill-current' : ''}`} />
               {likesCount > 0 && <span className="text-xs ml-1">{likesCount}</span>}
             </Button>
 
@@ -316,37 +317,78 @@ export function Post({ post, currentUserId }: PostProps) {
               size="icon" 
               onClick={handleBookmark}
               disabled={isLoading}
-              className={`h-9 w-9 rounded-full transition-colors ${
+              className={`h-8 w-8 rounded-full transition-colors ${
                 isBookmarked 
                   ? 'text-yellow-600 hover:text-yellow-700 hover:bg-yellow-500/10' 
                   : 'text-muted-foreground hover:text-yellow-600 hover:bg-yellow-500/10'
               }`}
             >
-              <Bookmark className={`h-5 w-5 ${isBookmarked ? 'fill-current' : ''}`} />
+              <Bookmark className={`h-4 w-4 ${isBookmarked ? 'fill-current' : ''}`} />
             </Button>
             
             <Button 
               variant="ghost" 
               size="icon" 
               onClick={handleButtonClick}
-              className="h-9 w-9 rounded-full text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10"
+              className="h-8 w-8 rounded-full text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10"
             >
-              <Share className="h-5 w-5" />
+              <Share className="h-4 w-4" />
             </Button>
           </div>
+
+          {/* Reply collapse toggle for threads with replies */}
+          {post.children && post.children.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleCollapsed}
+              className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {collapsedReplies ? (
+                <>
+                  <ChevronDown className="h-3 w-3 mr-1" />
+                  Show {post.children.length} {post.children.length === 1 ? 'reply' : 'replies'}
+                </>
+              ) : (
+                <>
+                  <ChevronUp className="h-3 w-3 mr-1" />
+                  Hide replies
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </article>
-      
-      {/* Delete confirmation dialog */}
-      <DeletePostDialog
-        isOpen={showDeleteDialog}
-        onClose={() => setShowDeleteDialog(false)}
-        onConfirm={handleDelete}
-        postId={post.id}
-        hasReplies={post.replies > 0}
-        replyCount={post.replies}
-        isDeleting={isDeleting}
-      />
-    </>
+
+      {/* Render child replies */}
+      {post.children && post.children.length > 0 && showReplies && !collapsedReplies && (
+        <div className="relative">
+          {post.children.map((child, index) => (
+            <ThreadedPost
+              key={child.id}
+              post={child}
+              currentUserId={currentUserId}
+              isLastInLevel={index === post.children!.length - 1}
+              showConnectingLines={showConnectingLines}
+              parentConnectingLines={connectingLines}
+              onReplyCountChange={onReplyCountChange}
+            />
+          ))}
+          
+          {/* "Show more" for deeply nested threads */}
+          {isDeepThread && (
+            <div className="ml-8 p-4 text-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/post/${post.root_post_id || post.id}`)}
+              >
+                Continue this thread →
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

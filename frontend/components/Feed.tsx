@@ -71,6 +71,7 @@ async function getPosts(userId?: string): Promise<PostData[]> {
         avatar_url
       )
     `)
+    .is('parent_id', null)  // Only show top-level posts, not replies
 
   if (rankedIds && rankedIds.length > 0) {
     // Fetch the specific posts the backend recommended
@@ -103,7 +104,9 @@ async function getPosts(userId?: string): Promise<PostData[]> {
   }
 
   // Transform data to match PostData interface
-  const postDataList = ((posts as unknown) as PostWithProfile[] || []).map((post) => ({
+  const postDataList = ((posts as unknown) as PostWithProfile[] || [])
+    .filter(post => !post.parent_id)
+    .map((post) => ({
     id: post.id,
     author_id: post.author_id,
     author: {

@@ -16,8 +16,17 @@ class SupabaseClient:
 
     def _init_client(self):
         try:
+            if not _settings.SUPABASE_SERVICE_ROLE_KEY:
+                logger.warning(
+                    "SUPABASE_SERVICE_ROLE_KEY not set; using SUPABASE_KEY. "
+                    "Engagement logging may fail due to RLS."
+                )
+            key = (
+                _settings.SUPABASE_SERVICE_ROLE_KEY
+                or _settings.SUPABASE_KEY
+            )
             self.client: Client = create_client(
-                _settings.SUPABASE_URL, _settings.SUPABASE_KEY
+                _settings.SUPABASE_URL, key
             )
             logger.info("Supabase client initialized")
         except Exception as e:

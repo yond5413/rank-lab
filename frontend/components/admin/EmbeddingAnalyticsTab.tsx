@@ -7,8 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefreshCw, TrendingUp, TrendingDown, Users, FileText, AlertTriangle, CheckCircle } from 'lucide-react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+import { adminFetch } from '@/lib/adminApi';
 
 interface EmbeddingAnalytics {
   user_embeddings: {
@@ -47,13 +46,7 @@ export function EmbeddingAnalyticsTab() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/admin/embedding-analytics?timeframe=${selectedTimeframe}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch analytics: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data = await adminFetch<EmbeddingAnalytics>(`/embedding-analytics?timeframe=${selectedTimeframe}`);
       setAnalytics(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch analytics');

@@ -14,4 +14,6 @@ export interface PostData {
   views?: number | null
   likes_count: number
   is_liked?: boolean
+  is_bookmarked?: boolean
+  bookmarks_count?: number
 }

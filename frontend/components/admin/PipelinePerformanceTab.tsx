@@ -7,8 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefreshCw, Activity, Clock, TrendingUp, AlertTriangle, CheckCircle, Zap } from 'lucide-react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+import { adminFetch } from '@/lib/adminApi';
 
 interface PipelineMetrics {
   throughput: {
@@ -39,13 +38,7 @@ export function PipelinePerformanceTab() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/admin/pipeline-performance?timeframe=${selectedTimeframe}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch metrics: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data = await adminFetch<PipelineMetrics>(`/pipeline-performance?timeframe=${selectedTimeframe}`);
       setMetrics(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch metrics');

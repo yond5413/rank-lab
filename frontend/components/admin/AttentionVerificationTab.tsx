@@ -8,8 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, XCircle, Play, RefreshCw, AlertTriangle } from 'lucide-react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+import { adminFetch } from '@/lib/adminApi';
 
 interface AttentionTestResult {
   post_id: string;
@@ -46,28 +45,8 @@ export function AttentionVerificationTab() {
 
   const fetchVerificationLogs = async () => {
     try {
-      // For now, we'll simulate logs since the backend endpoint would need to be implemented
-      const mockLogs: VerificationLog[] = [
-        {
-          id: '1',
-          post_id: 'test-post-1',
-          batch_1_score: 0.85,
-          batch_2_score: 0.84,
-          score_diff: 0.01,
-          test_timestamp: new Date().toISOString(),
-          is_consistent: true
-        },
-        {
-          id: '2',
-          post_id: 'test-post-2',
-          batch_1_score: 0.72,
-          batch_2_score: 0.68,
-          score_diff: 0.04,
-          test_timestamp: new Date(Date.now() - 3600000).toISOString(),
-          is_consistent: false
-        }
-      ];
-      setVerificationLogs(mockLogs);
+      const logs = await adminFetch<VerificationLog[]>('/attention-verification/logs?limit=25');
+      setVerificationLogs(logs);
     } catch (err) {
       console.error('Failed to fetch verification logs:', err);
     }
@@ -88,29 +67,22 @@ export function AttentionVerificationTab() {
     setTestResult(null);
 
     try {
-      const response = await fetch(`${API_URL}/admin/attention-verification`, {
+      const result = await adminFetch<AttentionTestResult>('/attention-verification', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           post_id: testPostId,
           batch_configs: [
             {
               post_id: testPostId,
-              candidate_positions: [0, 1, 2]
+              candidate_positions: [0, 1, 2],
             },
             {
               post_id: testPostId,
-              candidate_positions: [1, 0, 2]
-            }
-          ]
+              candidate_positions: [1, 0, 2],
+            },
+          ],
         }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Test failed: ${response.statusText}`);
-      }
-
-      const result = await response.json();
+      })
       setTestResult(result);
       
       // Refresh logs after test

@@ -9,8 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefreshCw, Save, History, TestTube, RotateCcw, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+import { adminFetch } from '@/lib/adminApi';
 
 interface ScoringWeights {
   [key: string]: number;
@@ -29,8 +28,8 @@ interface WeightHistory {
   }>;
   summary: {
     total_changes: number;
-    unique_actions: number;
-    changes_by_action: Record<string, {
+    unique_actions?: number;
+    changes_by_action?: Record<string, {
       current_weight: number;
       previous_weight: number;
       total_changes: number;
@@ -46,13 +45,12 @@ export function EnhancedWeightManagementTab() {
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedAction, setSelectedAction] = useState<string>('');
 
   const fetchWeights = async () => {
     try {
-      const response = await fetch(`${API_URL}/admin/weights`);
-      if (!response.ok) throw new Error('Failed to fetch weights');
-      const data = await response.json();
+      const data = await adminFetch<{ weights?: ScoringWeights }>('/weights');
       setWeights(data.weights || {});
       setOriginalWeights(data.weights || {});
     } catch (err) {
@@ -63,14 +61,15 @@ export function EnhancedWeightManagementTab() {
 
   const fetchWeightHistory = async (actionType?: string) => {
     try {
+      setHistoryError(null);
       const params = new URLSearchParams();
       if (actionType) params.append('action_type', actionType);
       
-      const response = await fetch(`${API_URL}/admin/weight-history?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch weight history');
-      const data = await response.json();
+      const qs = params.toString();
+      const data = await adminFetch<WeightHistory>(`/weight-history${qs ? `?${qs}` : ''}`);
       setWeightHistory(data);
     } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : 'Failed to load weight history');
       console.error('Failed to load weight history:', err);
     }
   };
@@ -93,13 +92,10 @@ export function EnhancedWeightManagementTab() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/admin/weights`, {
+      await adminFetch('/weights', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(weights),
-      });
-
-      if (!response.ok) throw new Error('Failed to save weights');
+      })
       
       setSaveSuccess(true);
       setOriginalWeights(weights);
@@ -176,6 +172,13 @@ export function EnhancedWeightManagementTab() {
         </Alert>
       )}
 
+      {historyError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="w-4 h-4" />
+          <AlertDescription>{historyError}</AlertDescription>
+        </Alert>
+      )}
+
       {saveSuccess && (
         <Alert className="bg-green-50 border-green-200">
           <AlertDescription className="text-green-800">
@@ -226,12 +229,12 @@ export function EnhancedWeightManagementTab() {
                           <span className={`font-mono font-bold ${getWeightColor(weight)}`}>
                             {weight > 0 ? '+' : ''}{weight}
                           </span>
-                          {weightHistory?.summary.changes_by_action[action] && (
+                          {weightHistory?.summary?.changes_by_action?.[action] && (
                             <Badge variant="outline" className="text-xs">
                               {(() => {
                                 const change = getWeightChange(
                                   weight,
-                                  weightHistory.summary.changes_by_action[action].previous_weight
+                                  weightHistory?.summary?.changes_by_action?.[action]?.previous_weight ?? weight
                                 );
                                 return (
                                   <span className={change.diff > 0 ? 'text-green-600' : change.diff < 0 ? 'text-red-600' : 'text-gray-600'}>
@@ -271,12 +274,12 @@ export function EnhancedWeightManagementTab() {
                           <span className={`font-mono font-bold ${getWeightColor(weight)}`}>
                             {weight}
                           </span>
-                          {weightHistory?.summary.changes_by_action[action] && (
+                          {weightHistory?.summary?.changes_by_action?.[action] && (
                             <Badge variant="outline" className="text-xs">
                               {(() => {
                                 const change = getWeightChange(
                                   weight,
-                                  weightHistory.summary.changes_by_action[action].previous_weight
+                                  weightHistory?.summary?.changes_by_action?.[action]?.previous_weight ?? weight
                                 );
                                 return (
                                   <span className={change.diff > 0 ? 'text-green-600' : change.diff < 0 ? 'text-red-600' : 'text-gray-600'}>
@@ -349,7 +352,7 @@ export function EnhancedWeightManagementTab() {
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-green-600">
-                      {weightHistory.summary.unique_actions}
+                      {weightHistory.summary.unique_actions ?? 0}
                     </div>
                     <div className="text-sm text-muted-foreground">Actions Modified</div>
                   </div>

@@ -10,6 +10,13 @@ from app.core.logging import logger
 settings = get_settings()
 router = APIRouter()
 
+def _service_status(ok: bool, warn: bool = False) -> str:
+    if ok and not warn:
+        return "ok"
+    if ok and warn:
+        return "warning"
+    return "error"
+
 
 class BatchConfig(BaseModel):
     """Configuration for attention masking verification batch."""
@@ -117,6 +124,75 @@ async def get_system_stats():
         return {"error": str(e)}
 
 
+@router.get("/health")
+async def get_system_health():
+    """Lightweight system health check for the admin dashboard."""
+    services = {"pipeline": "error", "embeddings": "error", "scoring": "error"}
+    try:
+        from app.db.supabase import get_supabase
+
+        supabase = get_supabase()
+
+        # Scoring: can we read scoring_weights?
+        scoring_ok = False
+        try:
+            res = supabase.table("scoring_weights").select("action_type").limit(1).execute()
+            scoring_ok = res is not None
+        except Exception as e:
+            logger.warning(f"Health scoring check failed: {e}")
+        services["scoring"] = _service_status(scoring_ok)
+
+        # Embeddings: can we read embeddings, and do we have any data?
+        embeddings_ok = False
+        embeddings_warn = False
+        try:
+            u = supabase.table("user_embeddings").select("user_id", count="exact").execute()
+            p = supabase.table("post_embeddings").select("post_id", count="exact").execute()
+            embeddings_ok = True
+            # Warn if both are empty (common in a fresh env)
+            u_count = getattr(u, "count", 0) or 0
+            p_count = getattr(p, "count", 0) or 0
+            embeddings_warn = (u_count == 0 and p_count == 0)
+        except Exception as e:
+            logger.warning(f"Health embeddings check failed: {e}")
+        services["embeddings"] = _service_status(embeddings_ok, warn=embeddings_warn)
+
+        # Pipeline: can we read recent engagement events?
+        pipeline_ok = False
+        pipeline_warn = False
+        try:
+            cutoff = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+            ev = (
+                supabase.table("engagement_events")
+                .select("id", count="exact")
+                .gte("created_at", cutoff)
+                .execute()
+            )
+            pipeline_ok = True
+            ev_count = getattr(ev, "count", 0) or 0
+            pipeline_warn = (ev_count == 0)
+        except Exception as e:
+            logger.warning(f"Health pipeline check failed: {e}")
+        services["pipeline"] = _service_status(pipeline_ok, warn=pipeline_warn)
+
+        # Overall status
+        if "error" in services.values():
+            overall = "critical"
+        elif "warning" in services.values():
+            overall = "warning"
+        else:
+            overall = "healthy"
+
+        return {
+            "overall_status": overall,
+            "services": services,
+            "last_updated": datetime.utcnow().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"System health failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/attention-verification")
 async def test_attention_masking(request: AttentionVerificationRequest):
     """Test candidate isolation consistency by scoring same post in different batches."""
@@ -194,6 +270,28 @@ async def test_attention_masking(request: AttentionVerificationRequest):
         
     except Exception as e:
         logger.error(f"Attention verification failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/attention-verification/logs")
+async def get_attention_verification_logs(
+    limit: int = Query(25, ge=1, le=200, description="Max number of logs to return"),
+):
+    """Fetch recent attention masking verification logs."""
+    try:
+        from app.db.supabase import get_supabase
+
+        supabase = get_supabase()
+        resp = (
+            supabase.table("attention_verification_logs")
+            .select("*")
+            .order("test_timestamp", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return resp.data or []
+    except Exception as e:
+        logger.error(f"Fetch attention verification logs failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -453,7 +551,14 @@ async def get_model_diagnostics(user_id: Optional[str] = Query(None, description
                     "most_common_events": sorted(event_types.items(), key=lambda x: x[1], reverse=True)[:5]
                 }
             else:
-                diagnostics["engagement_patterns"] = {"total_recent_events": 0}
+                # Always return a stable shape so the frontend can safely render.
+                diagnostics["engagement_patterns"] = {
+                    "total_recent_events": 0,
+                    "event_type_distribution": {},
+                    "unique_active_users": 0,
+                    "avg_events_per_user": 0,
+                    "most_common_events": []
+                }
         except Exception as e:
             diagnostics["engagement_patterns"] = {"error": str(e)}
         
@@ -493,7 +598,15 @@ async def get_weight_history(action_type: Optional[str] = Query(None, descriptio
         response = query.execute()
         
         if not response.data:
-            return {"history": [], "summary": {"total_changes": 0}}
+            # Always return a stable shape so the frontend can safely render.
+            return {
+                "history": [],
+                "summary": {
+                    "total_changes": 0,
+                    "unique_actions": 0,
+                    "changes_by_action": {},
+                },
+            }
         
         history = response.data
         
@@ -524,4 +637,109 @@ async def get_weight_history(action_type: Optional[str] = Query(None, descriptio
         
     except Exception as e:
         logger.error(f"Weight history failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/alerts")
+async def get_system_alerts():
+    """Computed alerts for the admin dashboard (no persistence)."""
+    try:
+        from app.db.supabase import get_supabase
+
+        supabase = get_supabase()
+        now = datetime.utcnow()
+        alerts: List[Dict[str, Any]] = []
+
+        # 1) Pipeline: low throughput in last 2h
+        try:
+            cutoff = (now - timedelta(hours=2)).isoformat()
+            ev = (
+                supabase.table("engagement_events")
+                .select("id", count="exact")
+                .gte("created_at", cutoff)
+                .execute()
+            )
+            count = getattr(ev, "count", 0) or 0
+            per_hour = count / 2.0
+            if per_hour < 5:
+                alerts.append(
+                    {
+                        "id": "pipeline_low_throughput",
+                        "type": "warning",
+                        "title": "Low Engagement Throughput",
+                        "message": f"Only {count} engagement events in the last 2 hours (~{per_hour:.1f}/hour).",
+                        "timestamp": now.isoformat(),
+                        "acknowledged": False,
+                        "source": "Pipeline Monitor",
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Alerts pipeline check failed: {e}")
+
+        # 2) Weights: most recent weight change
+        try:
+            wh = (
+                supabase.table("weight_change_history")
+                .select("*")
+                .order("changed_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if wh.data:
+                last = wh.data[0]
+                action = last.get("action_type", "unknown")
+                changed_at = last.get("changed_at") or now.isoformat()
+                by = last.get("changed_by") or "unknown"
+                old_w = last.get("old_weight")
+                new_w = last.get("new_weight")
+                alerts.append(
+                    {
+                        "id": "weights_last_change",
+                        "type": "info",
+                        "title": "Weight Configuration Updated",
+                        "message": f"{action} changed from {old_w} to {new_w} by {by}.",
+                        "timestamp": changed_at,
+                        "acknowledged": True,
+                        "source": "Weight Manager",
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Alerts weight history check failed: {e}")
+
+        # 3) Attention verification: most recent run
+        try:
+            al = (
+                supabase.table("attention_verification_logs")
+                .select("*")
+                .order("test_timestamp", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if al.data:
+                last = al.data[0]
+                is_consistent = bool(last.get("is_consistent"))
+                score_diff = last.get("score_diff")
+                ts = last.get("test_timestamp") or now.isoformat()
+                alerts.append(
+                    {
+                        "id": "attention_last_check",
+                        "type": "success" if is_consistent else "error",
+                        "title": "Attention Verification " + ("Passed" if is_consistent else "Failed"),
+                        "message": f"Most recent attention masking test score diff: {score_diff}.",
+                        "timestamp": ts,
+                        "acknowledged": True,
+                        "source": "Attention Verifier",
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Alerts attention logs check failed: {e}")
+
+        # Sort newest first (best-effort)
+        def _ts(a: Dict[str, Any]) -> str:
+            return a.get("timestamp") or ""
+
+        alerts.sort(key=_ts, reverse=True)
+        return alerts
+    except Exception as e:
+        logger.error(f"System alerts failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
