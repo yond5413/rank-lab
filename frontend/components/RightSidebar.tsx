@@ -1,8 +1,7 @@
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/server'
+import { SuggestionsList } from './SuggestionsList'
 
 interface TrendingHashtag {
   tag: string
@@ -14,6 +13,7 @@ interface SuggestedUser {
   display_name: string
   username: string
   avatar_url: string | null
+  isFollowing: boolean
 }
 
 async function getTrendingHashtags(): Promise<TrendingHashtag[]> {
@@ -45,9 +45,8 @@ async function getTrendingHashtags(): Promise<TrendingHashtag[]> {
     .map(([tag, count]) => ({ tag, count }))
 }
 
-async function getSuggestedUsers(): Promise<SuggestedUser[]> {
+async function getSuggestedUsers(currentUserId: string | null): Promise<SuggestedUser[]> {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
   
   // Get random profiles (excluding current user)
   let query = supabase
@@ -55,18 +54,41 @@ async function getSuggestedUsers(): Promise<SuggestedUser[]> {
     .select('id, display_name, username, avatar_url')
     .limit(3)
 
-  if (user) {
-    query = query.neq('id', user.id)
+  if (currentUserId) {
+    query = query.neq('id', currentUserId)
   }
 
   const { data: profiles } = await query
 
-  return profiles || []
+  if (!profiles || profiles.length === 0) return []
+
+  // Check follow status if user is logged in
+  let followingIds: Set<string> = new Set()
+  if (currentUserId) {
+    const { data: follows } = await supabase
+      .from('follows')
+      .select('following_id')
+      .eq('follower_id', currentUserId)
+      .in('following_id', profiles.map(p => p.id))
+
+    if (follows) {
+      followingIds = new Set(follows.map(f => f.following_id))
+    }
+  }
+
+  return profiles.map(profile => ({
+    ...profile,
+    isFollowing: followingIds.has(profile.id)
+  }))
 }
 
 export async function RightSidebar() {
+  const supabase = await createClient()
+  const { data: { user: currentUser } } = await supabase.auth.getUser()
+  const currentUserId = currentUser?.id || null
+  
   const trends = await getTrendingHashtags()
-  const suggestions = await getSuggestedUsers()
+  const suggestions = await getSuggestedUsers(currentUserId)
 
   return (
     <aside className="hidden xl:flex flex-col gap-4 sticky top-0 h-screen py-3 pl-3 w-[350px]">
@@ -115,25 +137,7 @@ export async function RightSidebar() {
               No suggestions available yet.
             </div>
           ) : (
-            suggestions.map((suggestion) => (
-              <Link
-                key={suggestion.id}
-                href={`/profile/${suggestion.username}`}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-accent/50 cursor-pointer transition-colors"
-              >
-                <Avatar className="h-10 w-10">
-                  <AvatarImage src={suggestion.avatar_url || undefined} alt={suggestion.display_name} />
-                  <AvatarFallback>{suggestion.display_name.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-[15px] truncate">{suggestion.display_name}</p>
-                  <p className="text-sm text-muted-foreground truncate">@{suggestion.username}</p>
-                </div>
-                <Button size="sm" variant="outline" className="rounded-full" onClick={(e) => e.preventDefault()}>
-                  Follow
-                </Button>
-              </Link>
-            ))
+            <SuggestionsList suggestions={suggestions} currentUserId={currentUserId} />
           )}
         </CardContent>
       </Card>
