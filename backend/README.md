@@ -45,8 +45,11 @@ Create `.env` in backend directory:
 
 ```env
 SUPABASE_URL=https://your-db.supabase.co
-SUPABASE_KEY=your-supabase-service-key
+SUPABASE_KEY=your-supabase-anon-key
 ```
+
+`/api/v1/engage` requires a valid user JWT in the `Authorization` header so
+RLS can enforce `auth.uid() = user_id`.
 
 ## Project Structure
 

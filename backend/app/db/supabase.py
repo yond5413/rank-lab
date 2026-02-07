@@ -39,3 +39,11 @@ class SupabaseClient:
 
 def get_supabase() -> Client:
     return SupabaseClient().get_client()
+
+
+def get_supabase_user(token: str) -> Client:
+    if not token:
+        raise ValueError("Missing Supabase user token.")
+    client = create_client(_settings.SUPABASE_URL, _settings.SUPABASE_KEY)
+    client.postgrest.auth(token)
+    return client

@@ -53,8 +53,8 @@ async function apiFetch<T>(
 ): Promise<T> {
   const url = `${API_V1}${path}`
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
+    headers: { 'Content-Type': 'application/json', ...options.headers },
   })
 
   if (!res.ok) {
@@ -89,8 +89,15 @@ export async function getRecommendations(
 export async function logEngagement(
   payload: EngagementPayload,
 ): Promise<{ status: string; event_id: string | null }> {
+  const { createClient } = await import('@/lib/supabase/client')
+  const supabase = createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+
   return apiFetch('/engage', {
     method: 'POST',
+    headers: session?.access_token
+      ? { Authorization: `Bearer ${session.access_token}` }
+      : {},
     body: JSON.stringify(payload),
   })
 }

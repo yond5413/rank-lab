@@ -35,8 +35,25 @@ def create_application() -> FastAPI:
     @application.on_event("startup")
     async def startup_event():
         logger.info(f"Starting up {settings.APP_NAME}")
-        # Services will be initialized lazily on first use
-        logger.info("API ready - ML models will load on first request")
+
+        # Preload ML models during startup to avoid cold start on first request
+        logger.info("Preloading ML models...")
+        try:
+            from app.services.minilm_ranker import get_minilm_ranker
+            from app.services.two_tower import get_two_tower_model
+
+            # Initialize MiniLM model (loads HuggingFace transformers)
+            minilm = get_minilm_ranker()
+            logger.info("MiniLM model loaded successfully")
+
+            # Initialize Two-Tower model (initializes PyTorch towers)
+            two_tower = get_two_tower_model()
+            logger.info("Two-Tower model loaded successfully")
+
+            logger.info("All ML models preloaded - API ready")
+        except Exception as e:
+            logger.error(f"Failed to preload models: {e}")
+            raise
 
     @application.on_event("shutdown")
     async def shutdown_event():

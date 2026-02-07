@@ -12,6 +12,7 @@ from app.services.two_tower import get_two_tower_model
 from app.services.minilm_ranker import get_minilm_ranker
 from app.services.filters import FilterPipeline
 from app.services.scoring import ScorerPipeline
+from app.core.cache import cache
 
 settings = get_settings()
 
@@ -26,6 +27,11 @@ class RecommendationPipeline:
 
     async def get_user_embedding(self, user_id: UUID) -> np.ndarray:
         """Fetch user embedding from database or compute from history."""
+        cache_key = f"user_embedding:{user_id}"
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return np.array(cached)
+
         try:
             response = (
                 self.supabase.table("user_embeddings")
@@ -35,7 +41,9 @@ class RecommendationPipeline:
             )
             if response.data:
                 emb_json = response.data[0]["embedding_128"]
-                return np.array(json.loads(emb_json))
+                embedding = np.array(json.loads(emb_json))
+                await cache.set(cache_key, embedding.tolist(), ttl=300)  # 5 min TTL
+                return embedding
         except Exception as e:
             logger.warning(f"Failed to fetch user embedding: {e}")
 
@@ -60,6 +68,11 @@ class RecommendationPipeline:
 
     async def get_following_list(self, user_id: UUID) -> List[UUID]:
         """Fetch user's following list."""
+        cache_key = f"following:{user_id}"
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return [UUID(f) for f in cached]
+
         try:
             response = (
                 self.supabase.table("follows")
@@ -67,11 +80,11 @@ class RecommendationPipeline:
                 .eq("follower_id", str(user_id))
                 .execute()
             )
-            return (
-                [UUID(f["following_id"]) for f in response.data]
-                if response.data
-                else []
-            )
+            if response.data:
+                following = [f["following_id"] for f in response.data]
+                await cache.set(cache_key, following, ttl=300)  # 5 min TTL
+                return [UUID(f) for f in following]
+            return []
         except Exception as e:
             logger.warning(f"Failed to fetch following list: {e}")
             return []
@@ -80,35 +93,51 @@ class RecommendationPipeline:
         self, user_id: UUID
     ) -> tuple[List[UUID], List[UUID]]:
         """Fetch blocked and muted authors."""
-        blocked = []
-        muted = []
+        cache_key = f"blocked_muted:{user_id}"
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            blocked = [UUID(b) for b in cached["blocked"]]
+            muted = [UUID(m) for m in cached["muted"]]
+            return blocked, muted
 
         try:
-            # Query blocked users
-            response = (
+            # Run blocked and muted queries in parallel
+            blocked_response, muted_response = await asyncio.gather(
                 self.supabase.table("blocks")
                 .select("blocked_id")
                 .eq("blocker_id", str(user_id))
-                .execute()
-            )
-            blocked = (
-                [UUID(b["blocked_id"]) for b in response.data] if response.data else []
-            )
-
-            # Query muted users
-            response = (
+                .execute(),
                 self.supabase.table("mutes")
                 .select("muted_id")
                 .eq("muter_id", str(user_id))
-                .execute()
+                .execute(),
+            )
+
+            blocked = (
+                [UUID(b["blocked_id"]) for b in blocked_response.data]
+                if blocked_response.data
+                else []
             )
             muted = (
-                [UUID(m["muted_id"]) for m in response.data] if response.data else []
+                [UUID(m["muted_id"]) for m in muted_response.data]
+                if muted_response.data
+                else []
             )
+
+            # Cache results
+            await cache.set(
+                cache_key,
+                {
+                    "blocked": [str(b) for b in blocked],
+                    "muted": [str(m) for m in muted],
+                },
+                ttl=300,
+            )  # 5 min TTL
+
+            return blocked, muted
         except Exception as e:
             logger.warning(f"Failed to fetch blocked/muted: {e}")
-
-        return blocked, muted
+            return [], []
 
     async def fetch_in_network_candidates(
         self, following: List[UUID], limit: int = 300
@@ -152,9 +181,12 @@ class RecommendationPipeline:
     ) -> List[PostCandidate]:
         """Fetch posts using two-tower similarity."""
         try:
-            # Get all post embeddings
+            # Get post embeddings (limited to 500 for performance)
             response = (
-                self.supabase.table("post_embeddings").select("*").limit(1000).execute()
+                self.supabase.table("post_embeddings")
+                .select("post_id, embedding_128")
+                .limit(500)  # Reduced from 1000 for performance
+                .execute()
             )
 
             if not response.data:
@@ -203,6 +235,11 @@ class RecommendationPipeline:
 
     async def _load_scoring_weights(self) -> Dict[str, float]:
         """Load active scoring weights from the database."""
+        cache_key = "scoring_weights"
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             response = (
                 self.supabase.table("scoring_weights")
@@ -217,6 +254,7 @@ class RecommendationPipeline:
                 }
                 if weights:
                     logger.debug(f"Loaded {len(weights)} scoring weights from DB")
+                    await cache.set(cache_key, weights, ttl=30)  # 30 sec TTL
                     return weights
         except Exception as e:
             logger.warning(f"Failed to load scoring weights from DB: {e}")
@@ -229,11 +267,13 @@ class RecommendationPipeline:
         """Generate recommendations for a user."""
         start_time = datetime.utcnow()
 
-        # Step 1: Query Hydration
+        # Step 1: Query Hydration (parallel)
         logger.info(f"Generating recommendations for user {user_id}")
-        user_embedding = await self.get_user_embedding(user_id)
-        following = await self.get_following_list(user_id)
-        blocked, muted = await self.get_blocked_muted_authors(user_id)
+        user_embedding, following, (blocked, muted) = await asyncio.gather(
+            self.get_user_embedding(user_id),
+            self.get_following_list(user_id),
+            self.get_blocked_muted_authors(user_id),
+        )
 
         # Step 2: Candidate Sourcing (parallel)
         in_network, oon_candidates = await asyncio.gather(

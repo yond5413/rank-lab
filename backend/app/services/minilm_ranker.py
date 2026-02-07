@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union
 from transformers import AutoModel, AutoTokenizer
 from app.core.config import get_settings
 from app.core.logging import logger
@@ -16,7 +16,9 @@ class ActionPredictionHead(nn.Module):
     (384-dim) for a total input size of 768.
     """
 
-    def __init__(self, input_dim: int = 768, hidden_dim: int = 384, num_actions: int = 6):
+    def __init__(
+        self, input_dim: int = 768, hidden_dim: int = 384, num_actions: int = 6
+    ):
         super().__init__()
         self.classifier = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -69,10 +71,20 @@ class MiniLMRanker:
             f"MiniLMRanker initialized with {len(self.action_types)} action types"
         )
 
-    def encode_text(self, text: str) -> np.ndarray:
-        """Encode text using MiniLM."""
+    def encode_text(self, text: Union[str, List[str]]) -> np.ndarray:
+        """Encode text(s) using MiniLM. Supports batch encoding."""
+        is_single = isinstance(text, str)
+        texts = [text] if is_single else text
+
+        if not texts:
+            return np.array([])
+
         inputs = self.tokenizer(
-            text, return_tensors="pt", truncation=True, max_length=512, padding=True
+            texts,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,  # Key: batch padding
         )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
@@ -85,7 +97,8 @@ class MiniLMRanker:
             sum_embeddings = (token_embeddings * input_mask_expanded).sum(dim=1)
             embeddings = sum_embeddings / input_mask_expanded.sum(dim=1).clamp(min=1)
 
-        return embeddings.cpu().numpy()[0]
+        embeddings = embeddings.cpu().numpy()
+        return embeddings[0] if is_single else embeddings
 
     def create_candidate_isolation_mask(
         self, seq_len: int, user_history_len: int, num_candidates: int
@@ -117,7 +130,7 @@ class MiniLMRanker:
         self, user_context: str, candidate_posts: List[Dict[str, str]]
     ) -> List[Dict[str, float]]:
         """
-        Rank candidates with action predictions.
+        Rank candidates with action predictions using batch encoding.
 
         Args:
             user_context: User's recent engagement context
@@ -129,28 +142,32 @@ class MiniLMRanker:
         if not candidate_posts:
             return []
 
-        # Encode user context
-        user_emb = self.encode_text(user_context)
+        # Encode user context once
+        user_emb = self.encode_text(user_context)  # shape: [384]
 
-        # Encode candidates
+        # Batch encode all candidates at once
+        candidate_texts = [post["text"] for post in candidate_posts]
+        candidate_embs = self.encode_text(candidate_texts)  # shape: [N, 384]
+
+        # Prepare batch input for action head
+        num_candidates = len(candidate_posts)
+        user_emb_tiled = np.tile(user_emb, (num_candidates, 1))  # shape: [N, 384]
+        combined = np.concatenate(
+            [user_emb_tiled, candidate_embs], axis=1
+        )  # shape: [N, 768]
+
+        # Convert to tensor and get predictions in one forward pass
+        combined_tensor = torch.tensor(combined, dtype=torch.float32).to(self.device)
+
+        with torch.no_grad():
+            action_probs = self.action_head(combined_tensor)  # shape: [N, num_actions]
+
+        # Convert to list of dicts
         predictions = []
-        for post in candidate_posts:
-            post_emb = self.encode_text(post["text"])
-
-            # Combine user context with post
-            combined = (
-                torch.tensor(np.concatenate([user_emb, post_emb]), dtype=torch.float32)
-                .unsqueeze(0)
-                .to(self.device)
-            )
-
-            # Get action predictions
-            with torch.no_grad():
-                action_probs = self.action_head(combined)
-
+        for i in range(num_candidates):
             pred_dict = {
-                action: float(action_probs[0][i])
-                for i, action in enumerate(self.action_types)
+                action: float(action_probs[i][j])
+                for j, action in enumerate(self.action_types)
             }
             predictions.append(pred_dict)
 
