@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Bell, BellOff, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { adminFetch } from '@/lib/adminApi';
+import { formatAdminDate } from '@/lib/adminDateFormat';
 
 interface SystemAlert {
   id: string;
@@ -25,7 +26,8 @@ interface AlertSystemProps {
 export function AlertSystem({ onAlertsChange }: AlertSystemProps) {
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
-  const [lastCheck, setLastCheck] = useState<Date>(new Date());
+  const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
 
   // Poll backend for computed alerts
   const checkForAlerts = async () => {
@@ -42,6 +44,10 @@ export function AlertSystem({ onAlertsChange }: AlertSystemProps) {
       console.error('Failed to check for alerts:', error);
     }
   };
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     if (alertsEnabled) {
@@ -172,7 +178,7 @@ export function AlertSystem({ onAlertsChange }: AlertSystemProps) {
                         <div className="flex items-center gap-4 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            {new Date(alert.timestamp).toLocaleString()}
+                            {formatAdminDate(alert.timestamp)}
                           </span>
                           <span>Source: {alert.source}</span>
                         </div>
@@ -205,7 +211,7 @@ export function AlertSystem({ onAlertsChange }: AlertSystemProps) {
         
         <div className="mt-4 pt-4 border-t">
           <p className="text-xs text-muted-foreground">
-            Last checked: {lastCheck.toLocaleString()}
+            Last checked: {hasMounted && lastCheck ? formatAdminDate(lastCheck) : '--'}
             {alertsEnabled && <span className="ml-2">• Auto-refresh every 30s</span>}
           </p>
         </div>

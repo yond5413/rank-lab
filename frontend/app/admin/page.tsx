@@ -29,6 +29,7 @@ import { EnhancedWeightManagementTab } from '@/components/admin/EnhancedWeightMa
 import { AlertSystem } from '@/components/admin/AlertSystem';
 
 import { adminFetch } from '@/lib/adminApi';
+import { formatAdminDate } from '@/lib/adminDateFormat';
 
 interface SystemStats {
   user_embeddings?: number;
@@ -368,7 +369,7 @@ export default function AdminDashboard() {
                 </div>
                 <div className="mt-4 pt-4 border-t">
                   <p className="text-sm text-muted-foreground">
-                    Last updated: {new Date(health.last_updated).toLocaleString()}
+                    Last updated: {formatAdminDate(health.last_updated)}
                   </p>
                 </div>
               </CardContent>

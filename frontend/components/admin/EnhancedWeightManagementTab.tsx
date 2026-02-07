@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefreshCw, Save, History, TestTube, RotateCcw, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import { adminFetch } from '@/lib/adminApi';
+import { formatAdminDate } from '@/lib/adminDateFormat';
 
 interface ScoringWeights {
   [key: string]: number;
@@ -134,7 +135,7 @@ export function EnhancedWeightManagementTab() {
   };
 
   const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
+    return formatAdminDate(timestamp);
   };
 
   return (
