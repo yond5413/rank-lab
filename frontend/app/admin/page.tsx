@@ -27,6 +27,7 @@ import { PipelinePerformanceTab } from '@/components/admin/PipelinePerformanceTa
 import { ModelDiagnosticsTab } from '@/components/admin/ModelDiagnosticsTab';
 import { EnhancedWeightManagementTab } from '@/components/admin/EnhancedWeightManagementTab';
 import { AlertSystem } from '@/components/admin/AlertSystem';
+import { DataSeedTab } from '@/components/admin/DataSeedTab';
 
 import { adminFetch } from '@/lib/adminApi';
 import { formatAdminDate } from '@/lib/adminDateFormat';
@@ -234,7 +235,7 @@ export default function AdminDashboard() {
 
         {/* Main Tabs */}
         <Tabs defaultValue="weights" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
+          <TabsList className="grid w-full grid-cols-7 max-w-5xl">
             <TabsTrigger value="weights" className="flex items-center gap-2">
               <Sliders className="w-4 h-4" />
               Weights
@@ -254,6 +255,10 @@ export default function AdminDashboard() {
             <TabsTrigger value="diagnostics" className="flex items-center gap-2">
               <Brain className="w-4 h-4" />
               Diagnostics
+            </TabsTrigger>
+            <TabsTrigger value="seed" className="flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              Seed Data
             </TabsTrigger>
             <TabsTrigger value="stats" className="flex items-center gap-2">
               <Database className="w-4 h-4" />
@@ -284,6 +289,11 @@ export default function AdminDashboard() {
         {/* Model Diagnostics */}
         <TabsContent value="diagnostics">
           <ModelDiagnosticsTab />
+        </TabsContent>
+
+        {/* Seed Data */}
+        <TabsContent value="seed">
+          <DataSeedTab />
         </TabsContent>
 
         {/* System Stats */}

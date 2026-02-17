@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
+    # OpenRouter (for LLM content generation)
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+
     # Model Config
     USER_EMBEDDING_DIM: int = 128
     POST_EMBEDDING_DIM: int = 128

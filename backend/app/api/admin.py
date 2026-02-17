@@ -1,14 +1,21 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 import json
 import numpy as np
+import asyncio
+import uuid
 from app.core.config import get_settings
 from app.core.logging import logger
+import queue
 
 settings = get_settings()
 router = APIRouter()
+
+# Job tracker for seed data generation
+seed_data_jobs: Dict[str, Dict[str, Any]] = {}
 
 
 def _service_status(ok: bool, warn: bool = False) -> str:
@@ -1325,3 +1332,231 @@ async def get_enhanced_batch_status():
     except Exception as e:
         logger.error(f"Get enhanced batch status failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class SeedDataRequest(BaseModel):
+    num_posts: int = 5000
+    use_llm: bool = True
+    skip_embeddings: bool = False
+
+
+@router.post("/seed-data")
+async def generate_seed_data(request: SeedDataRequest):
+    """Start seed data generation job and return job_id."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    import threading
+
+    job_id = str(uuid.uuid4())
+
+    # Initialize job state
+    seed_data_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "phase": "Starting...",
+        "stats": {},
+        "logs": [],
+        "error": None,
+        "started_at": datetime.utcnow().isoformat(),
+    }
+
+    # Capture request values before starting thread
+    num_posts = request.num_posts
+
+    def run_seed_job():
+        """Run seed data in background thread."""
+        try:
+            logger.info(f"Starting seed data generation job {job_id}")
+            seed_data_jobs[job_id]["phase"] = "Initializing..."
+            seed_data_jobs[job_id]["progress"] = 5
+
+            # Build command
+            cmd = [
+                sys.executable,
+                "-m",
+                "scripts.seed_data",
+                "--posts",
+                str(num_posts),
+            ]
+            if not request.use_llm:
+                cmd.append("--no-llm")
+            if request.skip_embeddings:
+                cmd.append("--skip-embeddings")
+
+            backend_dir = Path(__file__).resolve().parent.parent.parent.parent
+
+            # Run with Popen for streaming
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(backend_dir / "backend"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            seed_data_jobs[job_id]["phase"] = "Generating data..."
+            seed_data_jobs[job_id]["progress"] = 10
+
+            # Stream output line by line
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    seed_data_jobs[job_id]["logs"].append(line.strip())
+
+                    # Parse progress from logs
+                    if "Creating" in line and "posts" in line:
+                        seed_data_jobs[job_id]["phase"] = "Creating posts"
+                    elif "Generating replies" in line:
+                        seed_data_jobs[job_id]["phase"] = "Generating replies"
+                    elif "Generating follows" in line:
+                        seed_data_jobs[job_id]["phase"] = "Generating follows"
+                    elif "Generating likes" in line:
+                        seed_data_jobs[job_id]["phase"] = "Generating likes (Pareto)"
+                    elif "Generating reposts" in line:
+                        seed_data_jobs[job_id]["phase"] = "Generating reposts"
+                    elif "Generating views" in line:
+                        seed_data_jobs[job_id]["phase"] = "Generating views"
+                    elif "Generating bookmarks" in line:
+                        seed_data_jobs[job_id]["phase"] = "Generating bookmarks"
+                    elif "Computing embeddings" in line:
+                        seed_data_jobs[job_id]["phase"] = "Computing embeddings"
+
+                    # Parse stats
+                    if "Posts:" in line:
+                        try:
+                            val = int(line.split(":")[-1].strip())
+                            seed_data_jobs[job_id]["stats"]["posts"] = val
+                            seed_data_jobs[job_id]["progress"] = min(
+                                90, 20 + (val / num_posts) * 50
+                            )
+                        except:
+                            pass
+                    elif "Replies:" in line:
+                        try:
+                            seed_data_jobs[job_id]["stats"]["replies"] = int(
+                                line.split(":")[-1].strip()
+                            )
+                        except:
+                            pass
+                    elif "Likes:" in line:
+                        try:
+                            seed_data_jobs[job_id]["stats"]["likes"] = int(
+                                line.split(":")[-1].strip()
+                            )
+                        except:
+                            pass
+
+            process.wait()
+
+            if process.returncode != 0:
+                seed_data_jobs[job_id]["status"] = "error"
+                seed_data_jobs[job_id]["error"] = "Seed data generation failed"
+                logger.error(f"Seed data job {job_id} failed")
+            else:
+                seed_data_jobs[job_id]["status"] = "completed"
+                seed_data_jobs[job_id]["progress"] = 100
+                seed_data_jobs[job_id]["phase"] = "Complete!"
+
+                # Parse final stats
+                output = "\n".join(seed_data_jobs[job_id]["logs"])
+                stats = {
+                    "posts": 0,
+                    "replies": 0,
+                    "follows": 0,
+                    "likes": 0,
+                    "events": 0,
+                    "bookmarks": 0,
+                    "blocks": 0,
+                    "mutes": 0,
+                    "embeddings": 0,
+                }
+                for l in output.split("\n"):
+                    if "Posts:" in l:
+                        stats["posts"] = int(l.split(":")[-1].strip())
+                    elif "Replies:" in l:
+                        stats["replies"] = int(l.split(":")[-1].strip())
+                    elif "Follows:" in l:
+                        stats["follows"] = int(l.split(":")[-1].strip())
+                    elif "Likes:" in l:
+                        stats["likes"] = int(l.split(":")[-1].strip())
+                    elif "Engagement Events:" in l:
+                        stats["events"] = int(l.split(":")[-1].strip())
+                    elif "Bookmarks:" in l:
+                        stats["bookmarks"] = int(l.split(":")[-1].strip())
+                    elif "Blocks:" in l:
+                        stats["blocks"] = int(l.split(":")[-1].strip())
+                    elif "Mutes:" in l:
+                        stats["mutes"] = int(l.split(":")[-1].strip())
+                    elif "Post Embeddings:" in l:
+                        stats["embeddings"] = int(l.split(":")[-1].strip())
+                seed_data_jobs[job_id]["stats"] = stats
+                logger.info(f"Seed data job {job_id} completed: {stats}")
+
+        except Exception as e:
+            seed_data_jobs[job_id]["status"] = "error"
+            seed_data_jobs[job_id]["error"] = str(e)
+            logger.error(f"Seed data job {job_id} error: {e}")
+
+    # Start job in background thread
+    thread = threading.Thread(target=run_seed_job)
+    thread.start()
+
+    return {
+        "job_id": job_id,
+        "status": "started",
+        "message": "Seed data generation started",
+    }
+
+
+@router.get("/seed-data/{job_id}")
+async def get_seed_data_status(job_id: str):
+    """Get status of a seed data generation job."""
+    if job_id not in seed_data_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = seed_data_jobs[job_id]
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "progress": job.get("progress", 0),
+        "phase": job.get("phase", ""),
+        "stats": job.get("stats", {}),
+        "error": job.get("error"),
+        "started_at": job.get("started_at"),
+    }
+
+
+@router.get("/seed-data/{job_id}/stream")
+async def stream_seed_data(job_id: str):
+    """Stream seed data generation progress via SSE."""
+    if job_id not in seed_data_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    async def event_generator():
+        last_update = None
+        while True:
+            if job_id not in seed_data_jobs:
+                yield 'data: {"error": "Job not found"}\n\n'
+                break
+
+            job = seed_data_jobs[job_id]
+
+            # Check if job is done
+            if job["status"] in ["completed", "error"]:
+                yield f"data: {json.dumps({'done': True, 'status': job['status'], 'stats': job.get('stats', {}), 'error': job.get('error')})}\n\n"
+                break
+
+            # Yield progress update
+            yield f"data: {json.dumps({'progress': job.get('progress', 0), 'phase': job.get('phase', ''), 'stats': job.get('stats', {})})}\n\n"
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
