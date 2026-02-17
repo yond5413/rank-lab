@@ -96,6 +96,73 @@ async def backfill_embeddings(batch_size: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class EmbedUserRequest(BaseModel):
+    user_id: str
+    min_engagements: int = 0
+
+
+@router.post("/embed-user")
+async def embed_user(request: EmbedUserRequest):
+    """Compute and store a 128-dim embedding for a user from their engagement history.
+
+    This endpoint generates a user embedding by:
+    1. Fetching the user's recent engagement events (likes, replies, etc.)
+    2. Getting the post embeddings for those engaged posts
+    3. Running the User Tower transformer on the engagement history
+    4. Storing the resulting embedding in the user_embeddings table
+
+    The user must have at least `min_engagements` interactions for the embedding to be generated.
+    """
+    try:
+        service = get_embedding_service()
+        embedding = service.compute_and_store_user_embedding(
+            request.user_id, request.min_engagements
+        )
+        
+        if embedding is None:
+            return {
+                "status": "skipped",
+                "user_id": request.user_id,
+                "reason": "insufficient_engagements",
+                "message": f"User needs at least {request.min_engagements} engagements"
+            }
+        
+        return {
+            "status": "success",
+            "user_id": request.user_id,
+            "dimension": len(embedding),
+        }
+    except Exception as e:
+        logger.error(f"Error embedding user {request.user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backfill-user-embeddings")
+async def backfill_user_embeddings(min_engagements: int = 0, batch_size: int = 100):
+    """Generate embeddings for all users with engagement history.
+    
+    This batch operation will:
+    1. Find all users who have engagement events
+    2. Filter to users with at least `min_engagements` interactions
+    3. Generate embeddings for up to `batch_size` users
+    4. Return statistics on success/failure
+    
+    Args:
+        min_engagements: Minimum number of engagements required (default: 0 = all users)
+        batch_size: Maximum number of users to process in one batch (default: 100)
+    """
+    try:
+        service = get_embedding_service()
+        result = service.backfill_user_embeddings(min_engagements, batch_size)
+        return {
+            "status": "success",
+            **result
+        }
+    except Exception as e:
+        logger.error(f"Error backfilling user embeddings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/engage")
 async def log_engagement(event: EngagementEvent, request: Request):
     """

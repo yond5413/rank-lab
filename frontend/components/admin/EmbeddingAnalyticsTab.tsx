@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RefreshCw, TrendingUp, TrendingDown, Users, FileText, AlertTriangle, CheckCircle } from 'lucide-react';
 import { adminFetch } from '@/lib/adminApi';
+import { UserEmbeddingManagement } from './UserEmbeddingManagement';
 
 interface EmbeddingAnalytics {
   user_embeddings: {
@@ -88,27 +89,33 @@ export function EmbeddingAnalyticsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Header Controls */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">Embedding Analytics</h3>
-          <p className="text-sm text-muted-foreground">
-            Monitor embedding distribution, drift, and cold start performance
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Tabs value={timeframe} onValueChange={handleTimeframeChange}>
-            <TabsList>
-              <TabsTrigger value="1h">1H</TabsTrigger>
-              <TabsTrigger value="24h">24H</TabsTrigger>
-              <TabsTrigger value="7d">7D</TabsTrigger>
-              <TabsTrigger value="30d">30D</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Button variant="outline" size="sm" onClick={() => fetchAnalytics()} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+      {/* User Embedding Management Section */}
+      <UserEmbeddingManagement />
+
+      {/* Divider */}
+      <div className="border-t pt-6">
+        {/* Header Controls */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Embedding Analytics</h3>
+            <p className="text-sm text-muted-foreground">
+              Monitor embedding distribution, drift, and cold start performance
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Tabs value={timeframe} onValueChange={handleTimeframeChange}>
+              <TabsList>
+                <TabsTrigger value="1h">1H</TabsTrigger>
+                <TabsTrigger value="24h">24H</TabsTrigger>
+                <TabsTrigger value="7d">7D</TabsTrigger>
+                <TabsTrigger value="30d">30D</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button variant="outline" size="sm" onClick={() => fetchAnalytics()} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </div>
 

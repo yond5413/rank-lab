@@ -1005,3 +1005,323 @@ async def get_system_alerts():
     except Exception as e:
         logger.error(f"System alerts failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class GenerateUserEmbeddingRequest(BaseModel):
+    """Request to generate embedding for a specific user."""
+
+    user_id: str
+    min_engagements: int = 0
+
+
+@router.post("/user-embeddings/generate")
+async def generate_user_embedding(request: GenerateUserEmbeddingRequest):
+    """Generate embedding for a specific user from their engagement history.
+
+    This is useful for:
+    - Testing embedding generation for a single user
+    - Regenerating embeddings after model updates
+    - Manual intervention for specific users
+    """
+    try:
+        from app.services.embedding_service import get_embedding_service
+
+        service = get_embedding_service()
+        embedding = service.compute_and_store_user_embedding(
+            request.user_id, request.min_engagements
+        )
+
+        if embedding is None:
+            return {
+                "status": "skipped",
+                "user_id": request.user_id,
+                "reason": "insufficient_engagements",
+                "message": f"User needs at least {request.min_engagements} engagements",
+            }
+
+        return {
+            "status": "success",
+            "user_id": request.user_id,
+            "dimension": len(embedding),
+        }
+    except Exception as e:
+        logger.error(f"Error generating user embedding: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-embeddings/backfill")
+async def backfill_user_embeddings(
+    min_engagements: int = Query(0, description="Minimum engagements required"),
+    batch_size: int = Query(100, description="Maximum users to process"),
+):
+    """Batch generate embeddings for all users with engagement history.
+
+    This operation will:
+    1. Find all users with engagement events
+    2. Filter to users with at least min_engagements
+    3. Generate embeddings for up to batch_size users
+    4. Return detailed statistics
+
+    Use this to:
+    - Initial backfill after system setup
+    - Regenerate embeddings after model updates
+    - Catch up on users who haven't had embeddings generated
+    """
+    try:
+        from app.services.embedding_service import get_embedding_service
+
+        service = get_embedding_service()
+        result = service.backfill_user_embeddings(min_engagements, batch_size)
+
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error(f"Error backfilling user embeddings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/user-embeddings/stats")
+async def get_user_embedding_stats():
+    """Get statistics about user embeddings coverage.
+
+    Returns:
+    - Total users in system
+    - Users with embeddings
+    - Users with engagements but no embeddings
+    - Coverage percentage
+    """
+    try:
+        from app.db.supabase import get_supabase
+
+        supabase = get_supabase()
+
+        # Count total users
+        users_response = (
+            supabase.table("profiles").select("id", count="exact").execute()
+        )
+        total_users = users_response.count or 0
+
+        # Count users with embeddings
+        embeddings_response = (
+            supabase.table("user_embeddings").select("user_id", count="exact").execute()
+        )
+        users_with_embeddings = embeddings_response.count or 0
+
+        # Count users with engagements
+        engagements_response = (
+            supabase.table("engagement_events").select("user_id").execute()
+        )
+        users_with_engagements = len(
+            set(row["user_id"] for row in (engagements_response.data or []))
+        )
+
+        # Calculate users needing embeddings
+        users_needing_embeddings = users_with_engagements - users_with_embeddings
+
+        # Calculate coverage
+        coverage_percentage = (
+            (users_with_embeddings / users_with_engagements * 100)
+            if users_with_engagements > 0
+            else 0
+        )
+
+        return {
+            "total_users": total_users,
+            "users_with_embeddings": users_with_embeddings,
+            "users_with_engagements": users_with_engagements,
+            "users_needing_embeddings": max(0, users_needing_embeddings),
+            "coverage_percentage": round(coverage_percentage, 2),
+        }
+    except Exception as e:
+        logger.error(f"Error fetching user embedding stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch-training/run")
+async def trigger_batch_training():
+    """Manually trigger batch training for MLP weights.
+
+    This will:
+    1. Collect training pairs from recent engagement events
+    2. Train Candidate Tower MLP using contrastive loss
+    3. Save updated weights to database
+
+    Use this to:
+    - Test batch training manually
+    - Force retraining after significant data changes
+    """
+    try:
+        from app.services.online_learning import get_batch_training_service
+
+        service = get_batch_training_service()
+        result = await service.run_batch_training()
+
+        return result
+    except Exception as e:
+        logger.error(f"Batch training failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/batch-training/status")
+async def get_batch_training_status():
+    """Get batch training status and statistics."""
+    try:
+        from app.db.supabase import get_supabase
+
+        supabase = get_supabase()
+
+        # Check latest training run
+        model_response = (
+            supabase.table("model_weights")
+            .select("*")
+            .order("trained_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        # Count training pairs
+        pairs_response = (
+            supabase.table("training_pairs").select("id", count="exact").execute()
+        )
+
+        # Get engagement count
+        engagement_response = (
+            supabase.table("engagement_events").select("id", count="exact").execute()
+        )
+
+        status = {
+            "training_pairs_count": pairs_response.count or 0,
+            "engagement_events_count": engagement_response.count or 0,
+        }
+
+        if model_response.data:
+            latest = model_response.data[0]
+            status["last_training"] = {
+                "trained_at": latest.get("trained_at"),
+                "version": latest.get("version"),
+                "stats": latest.get("training_stats"),
+            }
+        else:
+            status["last_training"] = None
+
+        return status
+    except Exception as e:
+        logger.error(f"Batch training status failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/batch-training/metrics")
+async def get_training_metrics(
+    days: Optional[int] = Query(None, description="Filter by days (None = all)"),
+):
+    """Get current training metrics."""
+    try:
+        from app.db.supabase import get_supabase
+        from datetime import datetime, timedelta
+
+        supabase = get_supabase()
+        query = supabase.table("training_metrics").select("*")
+
+        # Apply time filter if specified
+        if days:
+            cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+            query = query.gte("trained_at", cutoff)
+
+        # Get latest metrics
+        query = query.order("trained_at", desc=True).limit(1)
+        response = query.execute()
+
+        if response.data:
+            latest = response.data[0]
+            return {
+                "loss": latest["loss"],
+                "accuracy": latest["accuracy"],
+                "pairs_count": latest["pairs_count"],
+                "last_trained": latest["trained_at"],
+                "version": latest["version"],
+            }
+
+        return {
+            "loss": None,
+            "accuracy": None,
+            "pairs_count": 0,
+            "last_trained": None,
+            "version": None,
+        }
+
+    except Exception as e:
+        logger.error(f"Get training metrics failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/batch-training/history")
+async def get_training_history(
+    limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
+):
+    """Get training history."""
+    try:
+        from app.db.supabase import get_supabase
+
+        supabase = get_supabase()
+        response = (
+            supabase.table("training_metrics")
+            .select("trained_at, loss, accuracy, pairs_count, version")
+            .order("trained_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        return response.data or []
+
+    except Exception as e:
+        logger.error(f"Get training history failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/batch-training/enhanced-status")
+async def get_enhanced_batch_status():
+    """Get enhanced batch training status with auto-training info."""
+    try:
+        from app.db.supabase import get_supabase
+        from app.services.engagement_counter import get_engagement_counter
+
+        supabase = get_supabase()
+        counter = get_engagement_counter()
+
+        # Get current metrics
+        metrics_response = (
+            supabase.table("training_metrics")
+            .select("trained_at, loss, accuracy, pairs_count")
+            .order("trained_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        # Get engagement count
+        engagement_response = (
+            supabase.table("engagement_events").select("id", count="exact").execute()
+        )
+
+        # Get training pairs count
+        pairs_response = (
+            supabase.table("training_pairs").select("id", count="exact").execute()
+        )
+
+        return {
+            "auto_training_enabled": True,  # Always enabled in config
+            "engagement_count": engagement_response.count or 0,
+            "training_pairs_count": pairs_response.count or 0,
+            "counter_progress": counter.get_progress(),
+            "counter_remaining": counter.get_remaining(),
+            "threshold": 75,
+            "last_trained": metrics_response.data[0]["trained_at"]
+            if metrics_response.data
+            else None,
+            "loss": metrics_response.data[0]["loss"] if metrics_response.data else None,
+            "accuracy": metrics_response.data[0]["accuracy"]
+            if metrics_response.data
+            else None,
+        }
+
+    except Exception as e:
+        logger.error(f"Get enhanced batch status failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

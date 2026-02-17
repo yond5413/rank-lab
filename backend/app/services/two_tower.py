@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import List, Tuple
+from typing import List
 from app.core.config import get_settings
 from app.core.logging import logger
 
@@ -110,6 +110,14 @@ class TwoTowerModel:
         self.user_tower.to(self.device)
         self.candidate_tower.to(self.device)
         logger.info(f"TwoTowerModel initialized on {self.device}")
+
+    def candidate_train(self):
+        """Set candidate tower to training mode."""
+        self.candidate_tower.train()
+
+    def candidate_eval(self):
+        """Set candidate tower to evaluation mode."""
+        self.candidate_tower.eval()
 
     def compute_user_embedding(
         self, engagement_history: List[List[float]]

@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Post } from '@/components/Post'
+import { ThreadedPost } from '@/components/ThreadedPost'
 import { LeftSidebar } from '@/components/LeftSidebar'
 import { RightSidebar } from '@/components/RightSidebar'
 import { createClient } from '@/lib/supabase/server'
@@ -21,7 +22,7 @@ interface PostWithProfile extends Tables<'posts'> {
     username: string
     avatar_url: string | null
   } | null
-  parent_id?: string | null
+  //parent_id?: string | null
 }
 
 async function getPost(postId: string, currentUserId?: string): Promise<PostData | null> {
@@ -85,38 +86,52 @@ async function getPost(postId: string, currentUserId?: string): Promise<PostData
   }
 }
 
-async function getReplies(postId: string, currentUserId?: string): Promise<PostData[]> {
+interface ThreadedPostData extends PostData {
+  thread_depth: number
+  root_post_id?: string | null
+  parent_id?: string | null
+  children?: ThreadedPostData[]
+}
+
+async function getThreadReplies(postId: string, currentUserId?: string): Promise<ThreadedPostData[]> {
   const supabase = await createClient()
   
-  // Query replies using parent_id
+  // Get all replies in the thread (not just direct replies)
   const { data: replies, error } = await supabase
     .from('posts')
     .select(`
       id,
       author_id,
+      parent_id,
       content,
       created_at,
       likes_count,
       reply_count,
       repost_count,
       view_count,
+      thread_depth,
+      root_post_id,
       profiles:author_id (
         display_name,
         username,
         avatar_url
       )
     `)
-    .eq('parent_id', postId)
+    .or(`parent_id.eq.${postId},root_post_id.eq.${postId}`)
     .order('created_at', { ascending: true })
-    .limit(50)
+    .limit(200) // Increased limit for threaded view
 
   if (error || !replies) {
     return []
   }
 
   let likedPostIds = new Set<string>()
+  let bookmarkedPostIds = new Set<string>()
+  
   if (currentUserId && replies.length > 0) {
     const postIds = replies.map(p => p.id)
+    
+    // Get likes
     const { data: likes } = await supabase
       .from('likes')
       .select('post_id')
@@ -124,9 +139,23 @@ async function getReplies(postId: string, currentUserId?: string): Promise<PostD
       .in('post_id', postIds)
     
     likedPostIds = new Set(likes?.map(l => l.post_id) || [])
+    
+    // Get bookmarks
+    const { data: bookmarks } = await supabase
+      .from('bookmarks')
+      .select('post_id')
+      .eq('user_id', currentUserId)
+      .in('post_id', postIds)
+    
+    bookmarkedPostIds = new Set(bookmarks?.map(b => b.post_id) || [])
   }
 
-  return ((replies as unknown) as PostWithProfile[] || []).map((post) => ({
+  // Transform replies to ThreadedPostData
+  const threadedPosts: ThreadedPostData[] = ((replies as unknown) as (PostWithProfile & {
+    parent_id: string | null
+    thread_depth: number
+    root_post_id: string | null
+  })[] || []).map((post) => ({
     id: post.id,
     author_id: post.author_id,
     author: {
@@ -142,7 +171,35 @@ async function getReplies(postId: string, currentUserId?: string): Promise<PostD
     replies: post.reply_count || 0,
     views: post.view_count || 0,
     is_liked: likedPostIds.has(post.id),
+    is_bookmarked: bookmarkedPostIds.has(post.id),
+    thread_depth: post.thread_depth || 0,
+    root_post_id: post.root_post_id,
+    parent_id: post.parent_id,
+    children: []
   }))
+
+  // Build the threaded structure
+  const postMap = new Map<string, ThreadedPostData>()
+  const rootReplies: ThreadedPostData[] = []
+
+  // First pass: create map of all posts
+  threadedPosts.forEach(post => {
+    postMap.set(post.id, post)
+  })
+
+  // Second pass: build parent-child relationships
+  threadedPosts.forEach(post => {
+    if (post.parent_id === postId) {
+      // Direct reply to the main post
+      rootReplies.push(post)
+    } else if (post.parent_id && postMap.has(post.parent_id)) {
+      // Reply to another reply
+      const parent = postMap.get(post.parent_id)!
+      parent.children!.push(post)
+    }
+  })
+
+  return rootReplies
 }
 
 export default async function PostDetailPage({ params }: PostDetailPageProps) {
@@ -156,7 +213,7 @@ export default async function PostDetailPage({ params }: PostDetailPageProps) {
     notFound()
   }
 
-  const replies = await getReplies(id, user?.id)
+  const replies = await getThreadReplies(id, user?.id)
 
   // Get user profile for reply form
   let userProfile = null
@@ -262,9 +319,17 @@ export default async function PostDetailPage({ params }: PostDetailPageProps) {
                 <p className="text-sm">Be the first to reply!</p>
               </div>
             ) : (
-              replies.map((reply) => (
-                <Post key={reply.id} post={reply} currentUserId={user?.id} />
-              ))
+              <div className="space-y-0">
+                {replies.map((reply, index) => (
+                  <ThreadedPost 
+                    key={reply.id} 
+                    post={reply} 
+                    currentUserId={user?.id}
+                    isLastInLevel={index === replies.length - 1}
+                    showConnectingLines={true}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </main>

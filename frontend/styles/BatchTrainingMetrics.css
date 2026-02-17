@@ -1,0 +1,257 @@
+/* Batch Training Metrics Component Styles */
+
+.batch-training-metrics {
+  padding: 1.5rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.batch-training-metrics .loading-state {
+  text-align: center;
+  padding: 2rem;
+  color: #6b7280;
+}
+
+/* Metrics Cards */
+.batch-training-metrics .metrics-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.batch-training-metrics .metric-card {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.batch-training-metrics .metric-card h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.875rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.batch-training-metrics .metric-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0.5rem 0;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+}
+
+.batch-training-metrics .metric-value.good {
+  color: #10b981;
+}
+
+.batch-training-metrics .metric-value.warning {
+  color: #f59e0b;
+}
+
+.batch-training-metrics .metric-value.error {
+  color: #ef4444;
+}
+
+.batch-training-metrics .metric-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+/* History Section */
+.batch-training-metrics .history-section {
+  margin: 1.5rem 0;
+  overflow-x: auto;
+}
+
+.batch-training-metrics .history-section h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  color: #374151;
+}
+
+.batch-training-metrics .history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.batch-training-metrics .history-table th,
+.batch-training-metrics .history-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.batch-training-metrics .history-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.batch-training-metrics .history-table td.good {
+  color: #10b981;
+}
+
+.batch-training-metrics .history-table td.warning {
+  color: #f59e0b;
+}
+
+.batch-training-metrics .history-table tr:hover {
+  background: #f9fafb;
+}
+
+/* Actions */
+.batch-training-metrics .metrics-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.batch-training-metrics .btn-primary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.batch-training-metrics .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+}
+
+.batch-training-metrics .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.batch-training-metrics .btn-secondary {
+  background: #fff;
+  color: #3b82f6;
+  border: 1px solid #3b82f6;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.batch-training-metrics .btn-secondary:hover {
+  background: #eff6ff;
+}
+
+/* Help Tooltip */
+.help-tooltip-container {
+  position: relative;
+  display: inline-block;
+}
+
+.help-tooltip-container .tooltip-icon {
+  color: #9ca3af;
+  cursor: help;
+  transition: color 0.2s;
+}
+
+.help-tooltip-container .tooltip-icon:hover {
+  color: #3b82f6;
+}
+
+.help-tooltip-container .tooltip-content {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  background: #1f2937;
+  color: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  z-index: 1000;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  margin-bottom: 0.5rem;
+}
+
+.help-tooltip-container .tooltip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top-color: #1f2937;
+}
+
+.help-tooltip-container:hover .tooltip-content {
+  display: block;
+  animation: tooltipFadeIn 0.2s ease-out;
+}
+
+.help-tooltip-container .tooltip-content h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.help-tooltip-container .tooltip-content p {
+  margin: 0;
+  line-height: 1.5;
+  color: #d1d5db;
+}
+
+.help-tooltip-container .tooltip-link {
+  display: block;
+  margin-top: 0.75rem;
+  color: #60a5fa;
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.help-tooltip-container .tooltip-link:hover {
+  text-decoration: underline;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .batch-training-metrics {
+    padding: 1rem;
+  }
+  
+  .batch-training-metrics .metrics-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .batch-training-metrics .metrics-actions {
+    flex-direction: column;
+  }
+  
+  .batch-training-metrics .btn-primary,
+  .batch-training-metrics .btn-secondary {
+    width: 100%;
+    text-align: center;
+  }
+}

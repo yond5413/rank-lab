@@ -23,7 +23,7 @@ interface PostWithProfile {
   reply_count: number | null
   repost_count: number | null
   view_count: number | null
-  parent_id: string | null
+  parent_id?: string | null
   profiles: {
     display_name: string | null
     username: string | null

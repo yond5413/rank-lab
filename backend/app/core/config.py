@@ -12,9 +12,7 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
-    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv(
-        "SUPABASE_SERVICE_ROLE_KEY", ""
-    )
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
     # Model Config
     USER_EMBEDDING_DIM: int = 128
@@ -49,6 +47,18 @@ class Settings(BaseSettings):
         "block_author": -10.0,
         "mute_author": -5.0,
     }
+
+    # Batch Training Config
+    BATCH_SIZE: int = 1000
+    TRAINING_TRIGGER_THRESHOLD: int = 1000  # Trigger training every N engagements
+    NEGATIVE_SAMPLES_PER_POSITIVE: int = 5
+    LEARNING_RATE: float = 0.001
+    MLP_HIDDEN_DIM: int = 256
+    NUM_EPOCHS: int = 10
+
+    # Engagement Threshold for Auto-Training
+    ENGAGEMENT_THRESHOLD: int = 75
+    ENABLE_AUTO_TRAINING: bool = True
 
     class Config:
         env_file = ".env"
